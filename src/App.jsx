@@ -407,7 +407,7 @@ function ScanView({ onAddPoints }) {
       const jsonMatch = content.match(/\[[\s\S]*\]/)
       if (jsonMatch) jsonStr = jsonMatch[0]
 
-    parsed = JSON.parse(jsonStr)
+      const parsed = JSON.parse(jsonStr)
       
       const newCandidates = parsed.map((item, idx) => toPoint(item, idx, source)).filter(item => item.term)
 
