@@ -141,7 +141,8 @@ const AI_PROMPT = `你是JLPT N1日语考点提取专家。请从图片中提取
 类型：vocabulary(N1词汇)、grammar(N1语法)、collocation(固定搭配)
 
 【要求】
-找出所有N1词汇和语法点，不要遗漏任何考点。
+1. 找出所有N1词汇和语法点
+2. 不要把「文法」「読解」「言語」当作考点提取（这些是标题）
 
 【输出格式】
 JSON数组：[{"term":"食べる","meaning_cn":"吃","type":"vocabulary"}]
@@ -406,20 +407,7 @@ function ScanView({ onAddPoints }) {
       const jsonMatch = content.match(/\[[\s\S]*\]/)
       if (jsonMatch) jsonStr = jsonMatch[0]
 
-      let parsed
-      try {
-        parsed = JSON.parse(jsonStr)
-      } catch {
-        // Try to extract JSON objects one by one
-        const matches = content.match(/\{[^{}]+\}/g) || []
-        parsed = []
-        for (const m of matches) {
-          try {
-            const obj = JSON.parse(m)
-            if (obj.term) parsed.push(obj)
-          } catch { /* skip invalid */ }
-        }
-      }
+    parsed = JSON.parse(jsonStr)
       
       const newCandidates = parsed.map((item, idx) => toPoint(item, idx, source)).filter(item => item.term)
 
