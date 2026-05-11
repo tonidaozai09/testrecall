@@ -440,6 +440,7 @@ function ScanView({ onAddPoints }) {
   const [selected, setSelected] = useState({})
   const [hasExtractedText, setHasExtractedText] = useState(false)
   const [source, setSource] = useState(defaultSource)
+  const [extractionSuccess, setExtractionSuccess] = useState(false)
 
   const handleAnalyze = async () => {
     if (!text.trim()) return
@@ -448,6 +449,7 @@ function ScanView({ onAddPoints }) {
     setError('')
     setCandidates([])
     setSelected({})
+    setExtractionSuccess(false)
 
     try {
       const response = await fetch(GROQ_URL, {
@@ -511,12 +513,14 @@ function ScanView({ onAddPoints }) {
     setSelected({})
     setHasExtractedText(false)
     setSource(defaultSource)
+    setExtractionSuccess(false)
   }
 
   const handleTextExtracted = (extractedText, sourceMeta) => {
     setText(extractedText)
     setSource(sourceMeta || defaultSource)
     setHasExtractedText(true)
+    setExtractionSuccess(true)
     setError('')
     setCandidates([])
     setSelected({})
@@ -529,8 +533,13 @@ function ScanView({ onAddPoints }) {
   const handleTextChange = (newText) => {
     setText(newText)
     setSource(defaultSource)
+    setExtractionSuccess(false)
     setHasExtractedText(false)
   }
+
+  // Display text in textarea: show placeholder if extraction was successful
+  const displayText = extractionSuccess ? '' : text
+  const textareaPlaceholder = extractionSuccess ? '读取成功' : '粘贴或输入日语文本...'
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -541,9 +550,9 @@ function ScanView({ onAddPoints }) {
           输入日语文本
         </label>
         <textarea
-          value={text}
+          value={displayText}
           onChange={(e) => handleTextChange(e.target.value)}
-          placeholder="粘贴或输入日语文本..."
+          placeholder={textareaPlaceholder}
           className="w-full h-40 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none japanese-text"
         />
         
