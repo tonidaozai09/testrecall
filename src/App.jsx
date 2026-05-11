@@ -136,20 +136,17 @@ const groupBySource = (points) => points.reduce((acc, point) => {
 }, {})
 
 // AI Prompt for text analysis
-const AI_PROMPT = `你是JLPT N1日语考点提取专家。请从图片中提取所有N1级别考点。
+const AI_PROMPT = `你是JLPT N1日语考点提取专家。请从图片中提取N1级别考点。
 
-类型：vocabulary(N1高频词)、grammar(N1语法句型)、collocation(固定搭配)
+类型：vocabulary(N1词汇)、grammar(N1语法)、collocation(固定搭配)
 
 【要求】
-1. 找出所有N1词汇（含汉字、假名）
-2. 找出所有N1语法点（接续、意思、语气）
-3. 不要遗漏任何可能考的点
+1. 找出所有N1词汇和语法点
+2. 最多返回30个考点
 
 【输出格式】
-JSON数组，每个考点：term(原文)、meaning_cn(中文)、type(类型)
-示例：[{"term":"食べる","meaning_cn":"吃","type":"vocabulary"},{"term":"必ずしも","meaning_cn":"不一定","type":"grammar"}]
-
-请严格返回JSON数组，不要其他文字。`
+JSON数组：[{"term":"食べる","meaning_cn":"吃","type":"vocabulary"}]
+请严格返回JSON，不要其他文字。`
 
 // Load/Save data from localStorage
 const loadData = () => {
