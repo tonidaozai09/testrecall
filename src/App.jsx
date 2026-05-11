@@ -181,7 +181,8 @@ const SHARED_RULES = `
 - vocabulary/collocation：reading字段填辞书形假名读音
 - grammar：term写完整句型，connection字段写接续方式（如：名词/普通形+にもかかわらず）
 - 不要提取「文法」「語彙」「読解」「聴解」「問題」等章节标题
-- 提取完毕后回顾一遍是否有遗漏，再输出`
+- 提取完毕后回顾一遍是否有遗漏，再输出
+- 输出顺序：按考点在原文/图片中出现的先后顺序排列（问题14的考点先输出，然后是问题15，以此类推），不要打乱顺序`
 
 const TEXT_USER_PROMPT = `请从以下文本中提取考点，不得遗漏。
 ${SHARED_RULES}
