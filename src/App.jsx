@@ -5,6 +5,8 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 // Groq API (free tier)
 const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || ''
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+const GROQ_TEXT_MODEL = 'llama-3.3-70b-versatile'
+const GROQ_VISION_MODEL = 'llama-3.2-11b-vision-preview'
 const OCR_LANGS = 'jpn+chi_sim+eng'
 const PDF_OCR_SCALE = 2
 
@@ -135,19 +137,49 @@ const groupBySource = (points) => points.reduce((acc, point) => {
   return acc
 }, {})
 
-// AI Prompt for text analysis
-const AI_PROMPT = `你是JLPT N1日语考点提取专家。请从图片中提取N1级别考点。
+// AI prompts
+const TEXT_SYSTEM_PROMPT = `你是JLPT N1日语考点提取专家，只返回JSON数组，不要任何其他文字。`
 
-类型：vocabulary(N1词汇)、grammar(N1语法)、collocation(固定搭配)
+const TEXT_USER_PROMPT = `请从以下文本中提取【所有】N1级别考点，不得遗漏。
 
-【要求】
-1. 找出所有N1词汇和语法点
-2. 如果是词汇或语法题，选项里的内容也要作为考点提取（如选项中出现「猫」「犬」「鳥」「魚」，都要提取）
-3. 不要把「文法」「読解」「言語」当作考点提取（这些是标题）
+【类型说明】
+- vocabulary: N1词汇（名词/形容词/动词/副词，含汉字词）
+- grammar: N1语法句型（如：〜にもかかわらず、〜を皮切りに、〜に際して、〜ずにはおかない、〜に相違ない等句型）
+- collocation: 固定搭配/惯用表达（如：気が置けない、手が込む等）
 
-【输出格式】
-JSON数组：[{"term":"食べる","meaning_cn":"吃","type":"vocabulary"}]
-请严格返回JSON，不要其他文字。`
+【提取要求】
+1. 提取文本中【所有】N1词汇，包括题目正文和各选项中的词汇
+2. 提取文本中【所有】N1语法句型（type=grammar），哪怕只出现一次也要提取，绝对不能遗漏
+3. 语法的term字段写完整句型（如：〜にもかかわらず），connection字段写接续方式（如：名词/普通形+にもかかわらず）
+4. 选择题4个选项都要检查，选项中的N1词汇和语法也需提取
+5. 词汇的reading字段填写假名读音
+6. 不要提取「文法」「語彙」「読解」「聴解」等章节标题
+
+输出JSON数组（无其他文字）：
+[{"term":"〜にもかかわらず","type":"grammar","meaning_cn":"尽管...、即使...也","connection":"名词/普通形+にもかかわらず"},
+ {"term":"甚だしい","type":"vocabulary","reading":"はなはだしい","meaning_cn":"极其、甚"},
+ {"term":"気が置けない","type":"collocation","meaning_cn":"不必拘束的、可以推心置腹的"}]
+
+待分析文本：
+`
+
+const VISION_PROMPT = `这是JLPT N1日语考试题目图片。请仔细识别图片中所有文字，提取【所有】N1级别考点，不得遗漏。
+
+【类型说明】
+- vocabulary: N1词汇（名词/形容词/动词/副词）
+- grammar: N1语法句型（如：〜にもかかわらず、〜を皮切りに、〜に際して等）
+- collocation: 固定搭配/惯用表达
+
+【提取要求】
+1. 仔细识别图片中每一个文字，包括小字和选项
+2. 题目正文和4个选项中出现的N1词汇都要提取
+3. 所有N1语法句型必须提取（type=grammar），term写完整句型（如：〜にもかかわらず），connection字段写接续方式
+4. 词汇的reading字段填假名读音
+5. 不要提取「文法」「語彙」「読解」「聴解」等章节标题
+
+输出JSON数组（无其他文字）：
+[{"term":"〜にもかかわらず","type":"grammar","meaning_cn":"尽管...、即使...也","connection":"名词/普通形+にもかかわらず"},
+ {"term":"甚だしい","type":"vocabulary","reading":"はなはだしい","meaning_cn":"极其、甚"}]`
 
 // Load/Save data from localStorage
 const loadData = () => {
@@ -170,6 +202,46 @@ const buildSourceMeta = (file, kind) => ({
   size: file.size,
   addedAt: new Date().toISOString(),
 })
+
+const imageToBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(reader.result)
+  reader.onerror = reject
+  reader.readAsDataURL(file)
+})
+
+const callGroq = async (messages, model) => {
+  const response = await fetch(GROQ_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${GROQ_KEY}`,
+    },
+    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 8192 }),
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.error?.message || 'Groq API请求失败')
+  }
+  const data = await response.json()
+  const content = data.choices?.[0]?.message?.content
+  if (!content) throw new Error('未获取到有效响应')
+  return content
+}
+
+const parseGroqResponse = (content) => {
+  const jsonMatch = content.match(/\[[\s\S]*\]/)
+  if (jsonMatch) return JSON.parse(jsonMatch[0])
+  // Fallback: extract complete objects
+  const results = []
+  const objRegex = /\{"term":"[^"]+","[^}]+"type":"(?:vocabulary|grammar|collocation|expression)"[^}]*\}/g
+  let match
+  while ((match = objRegex.exec(content)) !== null) {
+    try { results.push(JSON.parse(match[0])) } catch {}
+  }
+  if (results.length > 0) return results
+  throw new Error('JSON解析失败，请重试')
+}
 
 const extractImageText = async (imageLike) => {
   const result = await Tesseract.recognize(imageLike, OCR_LANGS, {
@@ -246,16 +318,13 @@ function FileUpload({ onTextExtracted, onError, disabled }) {
       const pdfExts = ['pdf']
 
       if (imageExts.includes(ext)) {
-        // Image: use Tesseract.js OCR (free, no API needed)
         setPreviewUrl(URL.createObjectURL(file))
-        setUploading(true) // restore uploading state
-
+        setUploading(true)
         try {
-          const text = await extractImageText(file)
-          if (!text) throw new Error('未能从图片中提取到文字，请确保图片清晰且包含日语文本或手写批注')
-          onTextExtracted(text, buildSourceMeta(file, 'image'))
+          const dataUrl = await imageToBase64(file)
+          onTextExtracted(null, buildSourceMeta(file, 'image'), dataUrl)
         } catch (err) {
-          onError(err.message || 'OCR识别失败')
+          onError(err.message || '图片读取失败')
         } finally {
           setUploading(false)
         }
@@ -358,6 +427,7 @@ function FileUpload({ onTextExtracted, onError, disabled }) {
 // Scan View Component
 function ScanView({ onAddPoints }) {
   const [text, setText] = useState('')
+  const [imageDataUrl, setImageDataUrl] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [candidates, setCandidates] = useState([])
@@ -367,8 +437,8 @@ function ScanView({ onAddPoints }) {
   const [extractionSuccess, setExtractionSuccess] = useState(false)
 
   const handleAnalyze = async () => {
-    if (!text.trim()) return
-    
+    if (!text.trim() && !imageDataUrl) return
+
     setLoading(true)
     setError('')
     setCandidates([])
@@ -376,64 +446,29 @@ function ScanView({ onAddPoints }) {
     setExtractionSuccess(false)
 
     try {
-      const response = await fetch(GROQ_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GROQ_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [
-            { role: 'system', content: '你是JLPT日语考点提取专家，擅长从日语文本中识别值得记忆的单词、固定搭配、语法、阅读和听力考点。只返回JSON数组，不要其他文字。' },
-            { role: 'user', content: AI_PROMPT + text }
+      let content
+      if (imageDataUrl) {
+        content = await callGroq(
+          [{ role: 'user', content: [
+            { type: 'image_url', image_url: { url: imageDataUrl } },
+            { type: 'text', text: VISION_PROMPT },
+          ]}],
+          GROQ_VISION_MODEL,
+        )
+      } else {
+        content = await callGroq(
+          [
+            { role: 'system', content: TEXT_SYSTEM_PROMPT },
+            { role: 'user', content: TEXT_USER_PROMPT + text },
           ],
-          temperature: 0.3,
-          max_tokens: 8192,
-        }),
-      })
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        throw new Error(err.error?.message || 'Groq API请求失败')
+          GROQ_TEXT_MODEL,
+        )
       }
 
-      const data = await response.json()
-      const content = data.choices?.[0]?.message?.content
+      const parsed = parseGroqResponse(content)
+      const newCandidates = parsed.map((item, idx) => toPoint(item, idx, source)).filter(item => item.term)
+      setCandidates(newCandidates)
 
-      if (!content) throw new Error('未获取到有效响应')
-
-      // Extract JSON from response
-      let jsonStr = content
-      const jsonMatch = content.match(/\[[\s\S]*\]/)
-      if (jsonMatch) jsonStr = jsonMatch[0]
-
-      let parsed
-      let newCandidates = []
-      try {
-        parsed = JSON.parse(jsonStr)
-        newCandidates = parsed.map((item, idx) => toPoint(item, idx, source)).filter(item => item.term)
-        setCandidates(newCandidates)
-      } catch {
-        // Fallback: extract complete JSON objects only
-        const results = []
-        // Stricter regex: only match objects with term AND type (both must be complete)
-        const objRegex = /\{"term":"[^"]+","meaning_cn":"[^"]*","type":"(?:vocabulary|grammar|collocation|expression)"\}/g
-        let match
-        while ((match = objRegex.exec(content)) !== null) {
-          try {
-            const obj = JSON.parse(match[0])
-            if (obj.term) results.push(obj)
-          } catch {}
-        }
-        if (results.length > 0) {
-          newCandidates = results.map((item, idx) => toPoint(item, idx, source)).filter(item => item.term)
-          setCandidates(newCandidates)
-        } else {
-          setError('JSON解析失败，请重试')
-        }
-      }
-      
       const initialSelected = {}
       newCandidates.forEach(c => { initialSelected[c.id] = true })
       setSelected(initialSelected)
@@ -451,9 +486,10 @@ function ScanView({ onAddPoints }) {
   const handleAddSelected = () => {
     const toAdd = candidates.filter(c => selected[c.id])
     if (toAdd.length === 0) return
-    
+
     onAddPoints(toAdd)
     setText('')
+    setImageDataUrl(null)
     setCandidates([])
     setSelected({})
     setHasExtractedText(false)
@@ -461,8 +497,14 @@ function ScanView({ onAddPoints }) {
     setExtractionSuccess(false)
   }
 
-  const handleTextExtracted = (extractedText, sourceMeta) => {
-    setText(extractedText)
+  const handleTextExtracted = (extractedText, sourceMeta, imgDataUrl) => {
+    if (imgDataUrl) {
+      setImageDataUrl(imgDataUrl)
+      setText('')
+    } else {
+      setImageDataUrl(null)
+      setText(extractedText)
+    }
     setSource(sourceMeta || defaultSource)
     setHasExtractedText(true)
     setExtractionSuccess(true)
@@ -477,14 +519,14 @@ function ScanView({ onAddPoints }) {
 
   const handleTextChange = (newText) => {
     setText(newText)
+    setImageDataUrl(null)
     setSource(defaultSource)
     setExtractionSuccess(false)
     setHasExtractedText(false)
   }
 
-  // Display text in textarea: show placeholder if extraction was successful
   const displayText = extractionSuccess ? '' : text
-  const textareaPlaceholder = extractionSuccess ? '读取成功' : '粘贴或输入日语文本...'
+  const textareaPlaceholder = imageDataUrl ? '图片已就绪，点击「AI 分析提取考点」' : extractionSuccess ? '读取成功，点击「AI 分析提取考点」' : '粘贴或输入日语文本...'
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -516,7 +558,7 @@ function ScanView({ onAddPoints }) {
         
         <button
           onClick={handleAnalyze}
-          disabled={loading || !text.trim()}
+          disabled={loading || (!text.trim() && !imageDataUrl)}
           className="mt-4 w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? (
