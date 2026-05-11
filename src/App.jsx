@@ -152,13 +152,24 @@ const groupBySource = (points) => points.reduce((acc, point) => {
 }, {})
 
 // AI Prompt for text analysis
-const AI_PROMPT = `你是JLPT日语考点提取专家。从日语文本中提取考点。
+const AI_PROMPT = `你是JLPT日语考点提取专家。根据文本内容判断类型并提取考点。
 
-类型：vocabulary(单词)、grammar(语法)、collocation(搭配)、expression(表达)、reading(阅读)、listening(听力)
+【类型判断规则】
+- vocabulary：单词、汉字读音、假名写法→N1/N2/N3高频词
+- grammar：语法句型、接续方式（如「动词た形+」「名词+から」）
+- collocation：固定搭配、词组（如「理解を深める」）
+- reading：阅读指代词（これそれあれ）、连接词（しかし因此）、长难句
+- listening：听力场景词（哎哎呀あのう）、口语缩约
+- expression：惯用表达、敬语谦语
 
-返回JSON数组，只返回JSON：
-[{"type":"vocabulary","term":"单词","meaning_cn":"中文意思"}]`
+【提取要求】
+- vocabulary：term/reading/meaning_cn/part_of_speech
+- grammar：term/meaning_cn/connection/level
+- reading：term/meaning_cn/usage
+- listening：term/meaning_cn/usage/scene
 
+返回JSON：
+[{"type":"vocabulary","term":"食べる","reading":"たべる","meaning_cn":"吃","part_of_speech":"Verb"}]`
 
 // Load/Save data from localStorage
 const loadData = () => {
