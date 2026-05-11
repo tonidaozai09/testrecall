@@ -238,7 +238,7 @@ const callGroq = async (messages, model) => {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${GROQ_KEY}`,
     },
-    body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 8192 }),
+    body: JSON.stringify({ model, messages, temperature: 0, seed: 42, max_tokens: 8192 }),
   })
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))
