@@ -389,7 +389,7 @@ function ScanView({ onAddPoints }) {
             { role: 'user', content: AI_PROMPT + text }
           ],
           temperature: 0.3,
-          max_tokens: 4096,
+          max_tokens: 8192,
         }),
       })
 
@@ -415,9 +415,10 @@ function ScanView({ onAddPoints }) {
         newCandidates = parsed.map((item, idx) => toPoint(item, idx, source)).filter(item => item.term)
         setCandidates(newCandidates)
       } catch {
-        // Fallback: extract individual JSON objects
+        // Fallback: extract complete JSON objects only
         const results = []
-        const objRegex = /\{"term"\s*:\s*"[^"]+"[^}]*\}/g
+        // Stricter regex: only match objects with term AND type (both must be complete)
+        const objRegex = /\{"term":"[^"]+","meaning_cn":"[^"]*","type":"(?:vocabulary|grammar|collocation|expression)"\}/g
         let match
         while ((match = objRegex.exec(content)) !== null) {
           try {
