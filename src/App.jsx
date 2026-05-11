@@ -24,36 +24,61 @@ const TYPE_LABELS = {
 const AI_PROMPT = `你是一个JLPT日语考点提取专家。请从以下日语文本中，提取值得记忆的考点。
 
 考点类型包括：
-1. vocabulary - 单词（名词、动词、形容词等）
-2. grammar - 语法（语法点、句型）
-3. collocation - 搭配（固定搭配）
-4. expression - 表达（常用表达）
+1. vocabulary - 单词（名词、动词、形容词、副词等）
+2. grammar - 语法（句型、语法点）重点识别！
+3. collocation - 搭配（固定搭配、词组）
+4. expression - 表达（惯用表达、功能用语）
 
-对于每个考点，请提供：
-- term: 考点原文
-- type: 类型（vocabulary/grammar/collocation/expression）
-- reading: 读音（平假名，如果是单词的话）
+【vocabulary 单词字段】
+- type: "vocabulary"
+- term: 单词原文
+- reading: 读音（平假名/片假名）
 - meaning_cn: 中文意思
-- part_of_speech: 词性（如果是单词）
-- example: 例句（从原文中提取或生成）
+- part_of_speech: 词性（名词/动词/形容词/副词等）
+- example: 一个例句
 - related: 相关词汇数组
-- source_exam: 来源（如果文本中包含考试信息）
 
-请以JSON数组格式返回，格式如下：
+【grammar 语法字段】重点！
+- type: "grammar"
+- term: 语法原文（如「たことがある」「ものではない」）
+- meaning_cn: 中文意思/翻译
+- meaning_en: 英文补充
+- connection: 接续（如「动词た形 + ことがある」）
+- nuance: 语气/用法说明（书面/口语/正式/随意等）
+- level: N5/N4/N3/N2/N1
+- example: 一个例句（包含该语法的完整例句）
+- related: 相关语法点数组
+
+【collocation 搭配字段】
+- type: "collocation"
+- term: 搭配原文
+- meaning_cn: 中文意思
+- example: 例句
+- related: 相关搭配数组
+
+【expression 表达字段】
+- type: "expression"
+- term: 表达原文
+- meaning_cn: 中文意思
+- usage: 使用场景（何时使用）
+- example: 例句
+- related: 相关表达数组
+
+请以JSON数组格式返回，只返回JSON，不要其他文字：
+
 [
   {
-    "type": "vocabulary",
-    "term": "態度",
-    "reading": "たいど",
-    "meaning_cn": "态度",
-    "part_of_speech": "名词",
-    "example": "彼の態度は失礼だった。",
-    "related": ["振る舞い", "対応"],
-    "source_exam": "2024.12 JLPT N1"
+    "type": "grammar",
+    "term": "たことがある",
+    "meaning_cn": "曾经...过",
+    "meaning_en": "have done something before",
+    "connection": "动词た形 + ことがある",
+    "nuance": "表示过去的经验，口语中常省略「が」",
+    "level": "N4",
+    "example": "日本に行ったことがある。",
+    "related": ["たことがない", "ることがある"]
   }
 ]
-
-只返回JSON数组，不要其他解释文字。
 
 待分析文本：
 `
