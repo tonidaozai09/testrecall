@@ -407,11 +407,31 @@ function ScanView({ onAddPoints }) {
       const jsonMatch = content.match(/\[[\s\S]*\]/)
       if (jsonMatch) jsonStr = jsonMatch[0]
 
-      const parsed = JSON.parse(jsonStr)
+      let parsed
+      let newCandidates = []
+      try {
+        parsed = JSON.parse(jsonStr)
+        newCandidates = parsed.map((item, idx) => toPoint(item, idx, source)).filter(item => item.term)
+        setCandidates(newCandidates)
+      } catch {
+        // Fallback: extract individual JSON objects
+        const results = []
+        const objRegex = /\{"term"\s*:\s*"[^"]+"[^}]*\}/g
+        let match
+        while ((match = objRegex.exec(content)) !== null) {
+          try {
+            const obj = JSON.parse(match[0])
+            if (obj.term) results.push(obj)
+          } catch {}
+        }
+        if (results.length > 0) {
+          newCandidates = results.map((item, idx) => toPoint(item, idx, source)).filter(item => item.term)
+          setCandidates(newCandidates)
+        } else {
+          setError('JSON解析失败，请重试')
+        }
+      }
       
-      const newCandidates = parsed.map((item, idx) => toPoint(item, idx, source)).filter(item => item.term)
-
-      setCandidates(newCandidates)
       const initialSelected = {}
       newCandidates.forEach(c => { initialSelected[c.id] = true })
       setSelected(initialSelected)
