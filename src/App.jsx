@@ -5,6 +5,8 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 // Groq API (free tier)
 const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || ''
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+const OCR_LANGS = 'jpn+chi_sim+eng'
+const PDF_OCR_SCALE = 2
 
 // Types
 const TYPE_COLORS = {
@@ -151,6 +153,7 @@ const groupBySource = (points) => points.reduce((acc, point) => {
 
 // AI Prompt for text analysis
 const AI_PROMPT = `你是一个JLPT日语考点提取专家。请从以下日语文本中，提取值得记忆的考点。
+文本可能同时包含教材正文、OCR识别出的手写笔记、中文批注、圈画旁边的备注。请特别关注这些人工标记和笔记，因为它们通常代表用户认为重要的考点。
 
 考点类型包括：
 1. vocabulary - 单词（名词、动词、形容词、副词等，优先识别JLPT N1高频词）
@@ -244,6 +247,28 @@ const buildSourceMeta = (file, kind) => ({
   addedAt: new Date().toISOString(),
 })
 
+const extractImageText = async (imageLike) => {
+  const result = await Tesseract.recognize(imageLike, OCR_LANGS, {
+    logger: () => {}
+  })
+  return result.data.text.trim()
+}
+
+const renderPdfPageToCanvas = async (page) => {
+  const viewport = page.getViewport({ scale: PDF_OCR_SCALE })
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    throw new Error('浏览器无法创建 PDF OCR 画布')
+  }
+
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+  await page.render({ canvasContext: context, viewport }).promise
+  return canvas
+}
+
 const extractPdfText = async (file) => {
   const pdfjsLib = await import('pdfjs-dist')
   pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -261,13 +286,19 @@ const extractPdfText = async (file) => {
       .trim()
 
     if (pageText) {
-      pages.push(`【PDF第${pageNumber}页】\n${pageText}`)
+      pages.push(`【PDF第${pageNumber}页-正文】\n${pageText}`)
+    }
+
+    const canvas = await renderPdfPageToCanvas(page)
+    const ocrText = await extractImageText(canvas)
+    if (ocrText) {
+      pages.push(`【PDF第${pageNumber}页-OCR含手写批注】\n${ocrText}`)
     }
   }
 
   const text = pages.join('\n\n').trim()
   if (!text) {
-    throw new Error('未能从 PDF 中提取到文字。这个 PDF 可能是扫描图片版，请先转成图片上传，或使用带文本层的 PDF。')
+    throw new Error('未能从 PDF 中提取到文字或批注。请确认 PDF 页面清晰，或把重点页面截成图片后上传。')
   }
   return text
 }
@@ -296,12 +327,9 @@ function FileUpload({ onTextExtracted, onError, disabled }) {
         setUploading(true) // restore uploading state
 
         try {
-          const result = await Tesseract.recognize(file, 'jpn', {
-            logger: () => {}
-          })
-          const text = result.data.text
-          if (!text.trim()) throw new Error('未能从图片中提取到文字，请确保图片清晰且包含日语文本')
-          onTextExtracted(text.trim(), buildSourceMeta(file, 'image'))
+          const text = await extractImageText(file)
+          if (!text) throw new Error('未能从图片中提取到文字，请确保图片清晰且包含日语文本或手写批注')
+          onTextExtracted(text, buildSourceMeta(file, 'image'))
         } catch (err) {
           onError(err.message || 'OCR识别失败')
         } finally {
@@ -380,7 +408,7 @@ function FileUpload({ onTextExtracted, onError, disabled }) {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          <span className="text-gray-600">正在识别文字...</span>
+          <span className="text-gray-600">正在识别正文和手写批注...</span>
         </div>
       ) : previewUrl ? (
         <div className="flex flex-col items-center gap-2">
@@ -395,7 +423,7 @@ function FileUpload({ onTextExtracted, onError, disabled }) {
             <span className="text-gray-500"> 或拖拽文件到此处</span>
           </div>
           <div className="text-xs text-gray-400">
-            支持 PDF、图片（JPG/PNG/GIF/WebP）AI识别文字，或文本文件（TXT/MD）
+            支持 PDF、图片（JPG/PNG/GIF/WebP）识别正文和手写批注，或文本文件（TXT/MD）
           </div>
         </div>
       )}
