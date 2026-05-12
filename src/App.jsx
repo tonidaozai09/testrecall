@@ -11,7 +11,6 @@ const GROQ_FALLBACK_MODEL = 'llama-3.1-8b-instant'
 // Gemini API — image vision (much better Japanese OCR, free tier)
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
 const GEMINI_VISION_MODEL = 'gemini-2.5-flash'
-const GEMINI_FALLBACK_MODEL = 'gemini-1.5-flash'
 
 const OCR_LANGS = 'jpn+chi_sim+eng'
 const PDF_OCR_SCALE = 2
@@ -257,40 +256,34 @@ const isGeminiOverloaded = (status, msg) =>
   /high demand|overloaded|try again/i.test(msg || '')
 
 // Shared Gemini caller — 3 retries per model, then falls back to GEMINI_FALLBACK_MODEL
-async function callGeminiAPI(geminiParts, temperature = 0.2) {
-  async function tryModel(model, retries = 3) {
-    for (let retryIdx = 0; retryIdx <= retries; retryIdx++) {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: geminiParts }],
-            generationConfig: { temperature, maxOutputTokens: 65536 },
-          }),
-        }
-      )
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}))
-        const msg = err.error?.message || `Gemini API错误 (${response.status})`
-        if (isGeminiOverloaded(response.status, msg) && retryIdx < retries) {
-          await sleep(3000 * (retryIdx + 1)) // 3s → 6s → 9s
-          continue
-        }
-        if (isGeminiOverloaded(response.status, msg) && model !== GEMINI_FALLBACK_MODEL) {
-          return tryModel(GEMINI_FALLBACK_MODEL)
-        }
-        throw new Error(msg)
+async function callGeminiAPI(geminiParts, temperature = 0.2, retries = 3) {
+  for (let retryIdx = 0; retryIdx <= retries; retryIdx++) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VISION_MODEL}:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: geminiParts }],
+          generationConfig: { temperature, maxOutputTokens: 65536 },
+        }),
       }
-      const respData = await response.json()
-      const resParts = respData.candidates?.[0]?.content?.parts || []
-      const text = (resParts.find(p => !p.thought) || resParts[0])?.text
-      if (!text) throw new Error('Gemini未返回有效内容')
-      return text
+    )
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      const msg = err.error?.message || `Gemini API错误 (${response.status})`
+      if (isGeminiOverloaded(response.status, msg) && retryIdx < retries) {
+        await sleep(3000 * (retryIdx + 1)) // 3s → 6s → 9s
+        continue
+      }
+      throw new Error(msg)
     }
+    const respData = await response.json()
+    const resParts = respData.candidates?.[0]?.content?.parts || []
+    const text = (resParts.find(p => !p.thought) || resParts[0])?.text
+    if (!text) throw new Error('Gemini未返回有效内容')
+    return text
   }
-  return tryModel(GEMINI_VISION_MODEL)
 }
 
 const callGeminiVision = (imageDataUrl, prompt, temperature = 0.2) => {
