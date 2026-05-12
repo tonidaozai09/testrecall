@@ -44,6 +44,19 @@ const STUDY_SECTIONS = [
   },
 ]
 
+// Custom tag palette
+const TAG_PALETTE = [
+  { bg: 'bg-rose-100', text: 'text-rose-700' },
+  { bg: 'bg-amber-100', text: 'text-amber-700' },
+  { bg: 'bg-lime-100', text: 'text-lime-700' },
+  { bg: 'bg-teal-100', text: 'text-teal-700' },
+  { bg: 'bg-sky-100', text: 'text-sky-700' },
+  { bg: 'bg-violet-100', text: 'text-violet-700' },
+  { bg: 'bg-fuchsia-100', text: 'text-fuchsia-700' },
+  { bg: 'bg-orange-100', text: 'text-orange-700' },
+]
+const getTagStyle = (tag, userTags) => TAG_PALETTE[Math.max(0, userTags.indexOf(tag)) % TAG_PALETTE.length]
+
 const normalizeTerm = (term) => term.trim().replace(/\s+/g, ' ')
 
 const getPointKey = (point) => `${point.type || 'vocabulary'}::${normalizeTerm(point.term || '').toLowerCase()}`
@@ -183,6 +196,17 @@ const loadData = () => {
 
 const saveData = (points) => {
   localStorage.setItem('testrecall_points', JSON.stringify(points))
+}
+
+const loadUserTags = () => {
+  try {
+    const saved = localStorage.getItem('testrecall_tags')
+    return saved ? JSON.parse(saved) : []
+  } catch { return [] }
+}
+
+const saveUserTags = (tags) => {
+  localStorage.setItem('testrecall_tags', JSON.stringify(tags))
 }
 
 const buildSourceMeta = (file, kind) => ({
@@ -725,9 +749,96 @@ function ScanView({ onAddPoints }) {
   )
 }
 
+// Tag Editor Component
+function TagEditor({ point, userTags, onToggleTag, onCreateTag, onClose, editorRef }) {
+  const [input, setInput] = useState('')
+
+  const handleCreate = () => {
+    const name = input.trim()
+    if (!name) return
+    onCreateTag(name)
+    onToggleTag(point.id, name, true)
+    setInput('')
+  }
+
+  return (
+    <div ref={editorRef} className="absolute z-30 bg-white border border-gray-200 rounded-xl shadow-xl p-3 w-56 top-full left-0 mt-1">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-gray-500">选择分类</span>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+      </div>
+      {userTags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {userTags.map(tag => {
+            const style = getTagStyle(tag, userTags)
+            const active = (point.customTags || []).includes(tag)
+            return (
+              <button
+                key={tag}
+                onClick={() => onToggleTag(point.id, tag, !active)}
+                className={`px-2 py-0.5 rounded text-xs font-medium border transition-all ${
+                  active
+                    ? `${style.bg} ${style.text} border-current`
+                    : 'bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200'
+                }`}
+              >
+                {active && '✓ '}{tag}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {userTags.length === 0 && (
+        <p className="text-xs text-gray-400 mb-2">还没有分类，在下方新建</p>
+      )}
+      <div className="flex gap-1.5">
+        <input
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleCreate()}
+          placeholder="新建分类..."
+          autoFocus
+          className="flex-1 text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+        <button
+          onClick={handleCreate}
+          disabled={!input.trim()}
+          className="px-2 py-1 bg-blue-600 text-white text-xs rounded disabled:opacity-40 hover:bg-blue-700"
+        >
+          创建
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // Points List View Component
-function PointsListView({ points }) {
-  const sourceGroups = Object.values(groupBySource(points))
+function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag }) {
+  const [activeTagFilter, setActiveTagFilter] = useState(null)
+  const [openEditorId, setOpenEditorId] = useState(null)
+  const editorRef = useRef(null)
+
+  useEffect(() => {
+    if (!openEditorId) return
+    const handler = (e) => {
+      if (editorRef.current && !editorRef.current.contains(e.target)) {
+        setOpenEditorId(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [openEditorId])
+
+  const handleToggleTag = (pointId, tag, active) => {
+    onUpdatePointTags(pointId, tag, active)
+  }
+
+  const filteredPoints = activeTagFilter
+    ? points.filter(p => (p.customTags || []).includes(activeTagFilter))
+    : points
+
+  const sourceGroups = Object.values(groupBySource(filteredPoints))
 
   if (points.length === 0) {
     return (
@@ -742,11 +853,47 @@ function PointsListView({ points }) {
   return (
     <div className="max-w-5xl mx-auto">
       <h2 className="text-2xl font-bold text-gray-800 mb-2">📚 考点列表</h2>
-      <p className="text-sm text-gray-500 mb-6">
+      <p className="text-sm text-gray-500 mb-4">
         按上传文件或图片归档，考点按单词、语法、阅读、听力整理。
       </p>
 
+      {/* Tag filter bar */}
+      {userTags.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-5">
+          <button
+            onClick={() => setActiveTagFilter(null)}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+              !activeTagFilter
+                ? 'bg-gray-800 text-white border-gray-800'
+                : 'bg-white text-gray-500 border-gray-300 hover:border-gray-500'
+            }`}
+          >
+            全部
+          </button>
+          {userTags.map(tag => {
+            const style = getTagStyle(tag, userTags)
+            const active = activeTagFilter === tag
+            return (
+              <button
+                key={tag}
+                onClick={() => setActiveTagFilter(active ? null : tag)}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                  active
+                    ? `${style.bg} ${style.text} border-current`
+                    : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                {tag}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <div className="space-y-8">
+        {sourceGroups.length === 0 && (
+          <div className="text-center py-12 text-gray-400">该分类下暂无考点</div>
+        )}
         {sourceGroups.map(({ source, points: sourcePoints }) => (
           <section key={source.id || getSourceLabel(source)} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-200 bg-gray-50">
@@ -789,11 +936,13 @@ function PointsListView({ points }) {
                               <th className="py-2 px-3 font-medium hidden md:table-cell">读音/级别</th>
                               <th className="py-2 px-3 font-medium">中文说明</th>
                               <th className="py-2 pl-3 font-medium hidden lg:table-cell">例句/提示</th>
+                              <th className="py-2 pl-3 font-medium">分类</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
                             {sectionPoints.map((point) => {
                               const colors = TYPE_COLORS[point.type] || TYPE_COLORS.vocabulary
+                              const pointTags = point.customTags || []
                               return (
                                 <tr key={point.id} className="align-top">
                                   <td className="py-3 pr-3">
@@ -825,6 +974,35 @@ function PointsListView({ points }) {
                                         相关：{point.related.join('、')}
                                       </div>
                                     )}
+                                  </td>
+                                  <td className="py-3 pl-3">
+                                    <div className="relative flex flex-wrap gap-1 items-center">
+                                      {pointTags.map(tag => {
+                                        const style = getTagStyle(tag, userTags)
+                                        return (
+                                          <span key={tag} className={`px-2 py-0.5 rounded text-xs font-medium ${style.bg} ${style.text}`}>
+                                            {tag}
+                                          </span>
+                                        )
+                                      })}
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setOpenEditorId(openEditorId === point.id ? null : point.id) }}
+                                        className="px-1.5 py-0.5 rounded border border-dashed border-gray-300 text-gray-400 text-xs hover:border-blue-400 hover:text-blue-500 transition-colors"
+                                        title="添加分类"
+                                      >
+                                        +
+                                      </button>
+                                      {openEditorId === point.id && (
+                                        <TagEditor
+                                          point={point}
+                                          userTags={userTags}
+                                          onToggleTag={handleToggleTag}
+                                          onCreateTag={onCreateTag}
+                                          onClose={() => setOpenEditorId(null)}
+                                          editorRef={editorRef}
+                                        />
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
                               )
@@ -952,10 +1130,15 @@ function StatisticsView({ points }) {
 function App() {
   const [view, setView] = useState('scan')
   const [points, setPoints] = useState(loadData)
+  const [userTags, setUserTags] = useState(loadUserTags)
 
   useEffect(() => {
     saveData(points)
   }, [points])
+
+  useEffect(() => {
+    saveUserTags(userTags)
+  }, [userTags])
 
   const addPoints = (newPoints) => {
     setPoints(prev => {
@@ -970,6 +1153,21 @@ function App() {
       })
       return updated
     })
+  }
+
+  const createTag = (name) => {
+    setUserTags(prev => prev.includes(name) ? prev : [...prev, name])
+  }
+
+  const updatePointCustomTags = (pointId, tag, active) => {
+    setPoints(prev => prev.map(p => {
+      if (p.id !== pointId) return p
+      const tags = p.customTags || []
+      return {
+        ...p,
+        customTags: active ? (tags.includes(tag) ? tags : [...tags, tag]) : tags.filter(t => t !== tag),
+      }
+    }))
   }
 
   const clearAll = () => {
@@ -1026,7 +1224,7 @@ function App() {
       {/* Content */}
       <main className="py-8 px-4">
         {view === 'scan' && <ScanView onAddPoints={addPoints} />}
-        {view === 'points' && <PointsListView points={points} />}
+        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} />}
         {view === 'stats' && <StatisticsView points={points} />}
       </main>
 
