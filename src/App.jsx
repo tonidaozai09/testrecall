@@ -349,7 +349,8 @@ const sortBySourceOrder = (candidates, sourceText) => {
 }
 
 const fillMissingExamples = async (points, onUpdate, onProgress) => {
-  const toFill = points.filter(p => !p.example)
+  // Re-fill if missing example, missing CN translation, or missing furigana notation
+  const toFill = points.filter(p => !p.example || !p.exampleCN || !p.example.includes('['))
   if (toFill.length === 0) return 0
 
   const BATCH = 20
@@ -1214,7 +1215,7 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
           ＋ 手动添加考点
         </button>
         {(() => {
-          const missing = sourceGroups.flatMap(g => g.points).filter(p => !p.example).length
+          const missing = sourceGroups.flatMap(g => g.points).filter(p => !p.example || !p.exampleCN || !p.example.includes('[')).length
           return (
             <button
               disabled={filling || missing === 0}
