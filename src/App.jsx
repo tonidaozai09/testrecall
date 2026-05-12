@@ -362,11 +362,13 @@ const fillMissingExamples = async (points, onUpdate, onProgress) => {
           { role: 'system', content: '你是日语教学专家。只返回JSON数组，不要其他文字。' },
           {
             role: 'user',
-            content: `为以下JLPT N1考点各补充一个自然的日语例句（10-20字）：
-- vocabulary/collocation：含该词的完整句子
-- grammar：展示接续用法的完整句子，按connection字段的接续形式造句
+            content: `为以下JLPT N1考点各生成一个自然的日语例句（10-20字）及中文翻译。
+要求：
+1. 例句中所有汉字必须用[漢字|ふりがな]格式标注平假名，如：[計画|けいかく]を[立|た]てる。
+2. 平假名、片假名、标点不用标注
+3. grammar类型按connection字段的接续形式造句
 
-只返回JSON数组：[{"id":"xxx","example":"例句"}]
+只返回JSON数组：[{"id":"xxx","example":"[漢字|ふりがな]の例文。","example_cn":"中文翻译"}]
 
 考点：${JSON.stringify(input)}`,
           },
@@ -375,7 +377,7 @@ const fillMissingExamples = async (points, onUpdate, onProgress) => {
         0,
       )
       const results = JSON.parse(content.match(/\[[\s\S]*\]/)?.[0] || '[]')
-      results.forEach(r => { if (r.id && r.example) { onUpdate(r.id, r.example); filled++ } })
+      results.forEach(r => { if (r.id && r.example) { onUpdate(r.id, r.example, r.example_cn || null); filled++ } })
     } catch {}
     if (onProgress) onProgress(Math.min(i + BATCH, toFill.length), toFill.length)
   }
@@ -439,6 +441,21 @@ const extractPdfText = async (file) => {
 }
 
 // File Upload Component
+// Renders [漢字|ふりがな] notation as HTML ruby elements
+function RubyText({ text }) {
+  if (!text) return null
+  const parts = []
+  const regex = /\[([^\]|]+)\|([^\]]+)\]/g
+  let last = 0, match
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index))
+    parts.push(<ruby key={match.index}>{match[1]}<rt className="text-[0.6em] text-gray-500">{match[2]}</rt></ruby>)
+    last = match.index + match[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return <span>{parts}</span>
+}
+
 function FileUpload({ onTextExtracted, onError, disabled }) {
   const [isDragging, setIsDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -1320,7 +1337,9 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                                     )}
                                   </td>
                                   <td className="py-3 pl-3 text-gray-600 hidden lg:table-cell">
-                                    {point.example || point.usage || '-'}
+                                    {point.example
+                                      ? <><RubyText text={point.example} />{point.exampleCN && <div className="mt-1 text-xs text-gray-400">{point.exampleCN}</div>}</>
+                                      : (point.usage || '-')}
                                     {point.related?.length > 0 && (
                                       <div className="mt-1 text-xs text-gray-400">
                                         相关：{point.related.join('、')}
@@ -1526,8 +1545,10 @@ function App() {
     setPoints(prev => prev.filter(p => p.id !== pointId))
   }
 
-  const updatePointExample = (pointId, example) => {
-    setPoints(prev => prev.map(p => p.id === pointId ? { ...p, example } : p))
+  const updatePointExample = (pointId, example, exampleCN) => {
+    setPoints(prev => prev.map(p =>
+      p.id === pointId ? { ...p, example, ...(exampleCN ? { exampleCN } : {}) } : p
+    ))
   }
 
   const assignSourceCategory = (sourceId, category) => {
