@@ -6,6 +6,7 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY || ''
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const GROQ_TEXT_MODEL = 'llama-3.3-70b-versatile'
+const GROQ_FALLBACK_MODEL = 'llama-3.1-8b-instant'
 
 // Gemini API — image vision (much better Japanese OCR, free tier)
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
@@ -277,22 +278,29 @@ const callGeminiVision = async (imageDataUrl, prompt) => {
 }
 
 const callGroq = async (messages, model, temperature = 0.2) => {
-  const response = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${GROQ_KEY}`,
-    },
-    body: JSON.stringify({ model, messages, temperature, max_tokens: 8192 }),
-  })
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}))
-    throw new Error(err.error?.message || 'Groq API请求失败')
+  const attempt = async (m) => {
+    const response = await fetch(GROQ_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_KEY}`,
+      },
+      body: JSON.stringify({ model: m, messages, temperature, max_tokens: 8192 }),
+    })
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      // Auto-fallback on rate-limit (429) if not already using the fallback model
+      if (response.status === 429 && m !== GROQ_FALLBACK_MODEL) {
+        return attempt(GROQ_FALLBACK_MODEL)
+      }
+      throw new Error(err.error?.message || 'Groq API请求失败')
+    }
+    const data = await response.json()
+    const content = data.choices?.[0]?.message?.content
+    if (!content) throw new Error('未获取到有效响应')
+    return content
   }
-  const data = await response.json()
-  const content = data.choices?.[0]?.message?.content
-  if (!content) throw new Error('未获取到有效响应')
-  return content
+  return attempt(model)
 }
 
 const parseGroqResponse = (content) => {
