@@ -580,9 +580,22 @@ function ScanView({ onAddPoints }) {
       sorted.forEach(c => { initialSelected[c.id] = true })
       setSelected(initialSelected)
 
-      // normalize dict forms in background, update terms when done
+      // normalize dict forms in background, deduplicate, then update
       normalizeDictForms(sorted).then(normalized => {
-        setCandidates(normalized)
+        const seen = new Set()
+        const deduped = normalized.filter(c => {
+          const key = getPointKey(c)
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        setCandidates(deduped)
+        setSelected(prev => {
+          const validIds = new Set(deduped.map(c => c.id))
+          const next = {}
+          Object.entries(prev).forEach(([id, val]) => { if (validIds.has(id)) next[id] = val })
+          return next
+        })
       }).catch(() => {})
     } catch (err) {
       setError(err.message || '分析失败，请重试')
