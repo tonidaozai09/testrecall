@@ -257,16 +257,16 @@ const isGeminiOverloaded = (status, msg) =>
   /high demand|overloaded|try again/i.test(msg || '')
 
 // Shared Gemini caller — 3 retries per model, then falls back to GEMINI_FALLBACK_MODEL
-const callGeminiAPI = async (parts, temperature = 0.2) => {
-  const tryModel = async (model, retries = 3) => {
-    for (let attempt = 0; attempt <= retries; attempt++) {
+async function callGeminiAPI(geminiParts, temperature = 0.2) {
+  async function tryModel(model, retries = 3) {
+    for (let retryIdx = 0; retryIdx <= retries; retryIdx++) {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts }],
+            contents: [{ parts: geminiParts }],
             generationConfig: { temperature, maxOutputTokens: 65536 },
           }),
         }
@@ -274,8 +274,8 @@ const callGeminiAPI = async (parts, temperature = 0.2) => {
       if (!response.ok) {
         const err = await response.json().catch(() => ({}))
         const msg = err.error?.message || `Gemini API错误 (${response.status})`
-        if (isGeminiOverloaded(response.status, msg) && attempt < retries) {
-          await sleep(3000 * (attempt + 1)) // 3s → 6s → 9s
+        if (isGeminiOverloaded(response.status, msg) && retryIdx < retries) {
+          await sleep(3000 * (retryIdx + 1)) // 3s → 6s → 9s
           continue
         }
         if (isGeminiOverloaded(response.status, msg) && model !== GEMINI_FALLBACK_MODEL) {
@@ -283,11 +283,11 @@ const callGeminiAPI = async (parts, temperature = 0.2) => {
         }
         throw new Error(msg)
       }
-      const data = await response.json()
-      const resParts = data.candidates?.[0]?.content?.parts || []
-      const content = (resParts.find(p => !p.thought) || resParts[0])?.text
-      if (!content) throw new Error('Gemini未返回有效内容')
-      return content
+      const respData = await response.json()
+      const resParts = respData.candidates?.[0]?.content?.parts || []
+      const text = (resParts.find(p => !p.thought) || resParts[0])?.text
+      if (!text) throw new Error('Gemini未返回有效内容')
+      return text
     }
   }
   return tryModel(GEMINI_VISION_MODEL)
@@ -310,8 +310,8 @@ const callGeminiText = (messages, temperature = 0.2) => {
   return callGeminiAPI([{ text: prompt }], temperature)
 }
 
-const callGroq = async (messages, model, temperature = 0.2) => {
-  const attempt = async (m) => {
+async function callGroq(messages, model, temperature = 0.2) {
+  async function attempt(m) {
     const response = await fetch(GROQ_URL, {
       method: 'POST',
       headers: {
@@ -330,10 +330,10 @@ const callGroq = async (messages, model, temperature = 0.2) => {
       }
       throw new Error(err.error?.message || 'Groq API请求失败')
     }
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content
-    if (!content) throw new Error('未获取到有效响应')
-    return content
+    const respData = await response.json()
+    const text = respData.choices?.[0]?.message?.content
+    if (!text) throw new Error('未获取到有效响应')
+    return text
   }
   return attempt(model)
 }
