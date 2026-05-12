@@ -157,32 +157,33 @@ const groupBySource = (points) => points.reduce((acc, point) => {
 // AI prompts
 const TEXT_SYSTEM_PROMPT = `你是JLPT日语考点提取专家，只返回JSON数组，不要任何其他文字。`
 
-const EXTRACTION_RULES = `
-类型：
-- grammar = N1级别语法句型，通常是复合助词或接续形式，例：〜にもかかわらず・〜を皮切りに・〜に際して・〜ずにはおかない・〜かねない・〜をもって・〜に至る。注意：〜ておく・〜てみる・〜ばかり・〜はず・〜わけ・〜なくても 等N4-N5基础语法【不要提取】
-- collocation = 两词以上的惯用表达，整体含义无法从各词字面推导（例：気が置けない・手が込む・目を見張る）。普通的「名词+助词」短语不是collocation
-- vocabulary = 单个词汇（名词/动词/形容词/副词），动词写辞书形
-
-提取要求：
-1. 所有词汇都要提取，不因"太普通"跳过（只排除する/ある/いる/行く/来る/見る等极基础动词、助词、数字）
-2. 题干中被考察的词必须提取
-3. 4个选项全部检查；选项是完整句子时，拆出各关键词单独提取，不要整句归为collocation
-4. 不提取「文法」「語彙」「読解」「聴解」等章节标题`
+const ALL_LEVELS = ['N1', 'N2', 'N3', 'N4', 'N5']
 
 const JSON_EXAMPLE = `[{"term":"もくろむ","type":"vocabulary","reading":"もくろむ","meaning_cn":"图谋、策划"},
  {"term":"〜にもかかわらず","type":"grammar","meaning_cn":"尽管...","connection":"普通形+にもかかわらず"},
  {"term":"気が置けない","type":"collocation","meaning_cn":"不必拘束、可以推心置腹"}]`
 
-const TEXT_USER_PROMPT = `从以下文本提取所有考点，不得遗漏。${EXTRACTION_RULES}
+const buildExtractionRules = (levels) => {
+  const levelStr = levels.join('/') // e.g. N1/N2
+  const excludeN4N5Grammar = !levels.includes('N4') && !levels.includes('N5')
+  return `
+类型：
+- grammar = ${levelStr}级别语法句型，通常是复合助词或接续形式，例：〜にもかかわらず・〜を皮切りに・〜に際して・〜ずにはおかない・〜かねない・〜をもって・〜に至る${excludeN4N5Grammar ? '。注意：〜ておく・〜てみる・〜ばかり・〜はず・〜わけ・〜なくても 等N4-N5基础语法【不要提取】' : ''}
+- collocation = 两词以上的惯用表达，整体含义无法从各词字面推导（例：気が置けない・手が込む・目を見張る）。普通的「名词+助词」短语不是collocation
+- vocabulary = ${levelStr}范围词汇（名词/动词/形容词/副词），动词写辞书形
 
-只返回JSON数组：${JSON_EXAMPLE}
+提取要求：
+1. 提取${levelStr}范围内的词汇，不因"太普通"跳过（只排除する/ある/いる/行く/来る/見る等极基础动词、助词、数字）
+2. 题干中被考察的词必须提取
+3. 4个选项全部检查；选项是完整句子时，拆出各关键词单独提取，不要整句归为collocation
+4. 不提取「文法」「語彙」「読解」「聴解」等章节标题`
+}
 
-文本：
-`
+const buildTextPrompt = (levels) =>
+  `从以下文本提取所有考点，不得遗漏。${buildExtractionRules(levels)}\n\n只返回JSON数组：${JSON_EXAMPLE}\n\n文本：\n`
 
-const VISION_PROMPT = `这是JLPT日语考试题目图片，仔细识别所有文字，提取所有考点，不得遗漏。${EXTRACTION_RULES}
-
-只返回JSON数组：${JSON_EXAMPLE}`
+const buildVisionPrompt = (levels) =>
+  `这是JLPT日语考试题目图片，仔细识别所有文字，提取所有考点，不得遗漏。${buildExtractionRules(levels)}\n\n只返回JSON数组：${JSON_EXAMPLE}`
 
 // Load/Save data from localStorage
 const loadData = () => {
@@ -591,9 +592,16 @@ function ScanView({ onAddPoints }) {
   const [hasExtractedText, setHasExtractedText] = useState(false)
   const [source, setSource] = useState(defaultSource)
   const [extractionSuccess, setExtractionSuccess] = useState(false)
+  const [selectedLevels, setSelectedLevels] = useState(['N1'])
+
+  const toggleLevel = (level) =>
+    setSelectedLevels(prev =>
+      prev.includes(level) ? prev.filter(l => l !== level) : [...prev, level]
+    )
 
   const handleAnalyze = async () => {
     if (!text.trim() && !imageDataUrl) return
+    if (selectedLevels.length === 0) return
 
     setLoading(true)
     setError('')
@@ -602,14 +610,16 @@ function ScanView({ onAddPoints }) {
     setExtractionSuccess(false)
 
     try {
+      const visionPrompt = buildVisionPrompt(selectedLevels)
+      const textPrompt = buildTextPrompt(selectedLevels)
       let content
       if (imageDataUrl) {
         content = GEMINI_KEY
-          ? await callGeminiVision(imageDataUrl, VISION_PROMPT)
+          ? await callGeminiVision(imageDataUrl, visionPrompt)
           : await callGroq(
               [{ role: 'user', content: [
                 { type: 'image_url', image_url: { url: imageDataUrl } },
-                { type: 'text', text: VISION_PROMPT },
+                { type: 'text', text: visionPrompt },
               ]}],
               'meta-llama/llama-4-scout-17b-16e-instruct',
             )
@@ -617,7 +627,7 @@ function ScanView({ onAddPoints }) {
         content = await callGroq(
           [
             { role: 'system', content: TEXT_SYSTEM_PROMPT },
-            { role: 'user', content: TEXT_USER_PROMPT + text },
+            { role: 'user', content: textPrompt + text },
           ],
           GROQ_TEXT_MODEL,
         )
@@ -732,10 +742,34 @@ function ScanView({ onAddPoints }) {
             <span>已提取：{getSourceLabel(source)}，可直接点击分析</span>
           </div>
         )}
-        
+
+        {/* Level selector */}
+        <div className="mt-4 flex items-center gap-3 flex-wrap">
+          <span className="text-sm font-medium text-gray-600 shrink-0">提取范围</span>
+          {ALL_LEVELS.map(level => {
+            const active = selectedLevels.includes(level)
+            return (
+              <label key={level} className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={active}
+                  onChange={() => toggleLevel(level)}
+                  className="w-4 h-4 accent-blue-600 rounded"
+                />
+                <span className={`text-sm font-semibold ${active ? 'text-blue-700' : 'text-gray-400'}`}>
+                  {level}
+                </span>
+              </label>
+            )
+          })}
+          {selectedLevels.length === 0 && (
+            <span className="text-xs text-red-500">请至少选择一个级别</span>
+          )}
+        </div>
+
         <button
           onClick={handleAnalyze}
-          disabled={loading || (!text.trim() && !imageDataUrl)}
+          disabled={loading || (!text.trim() && !imageDataUrl) || selectedLevels.length === 0}
           className="mt-4 w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? (
