@@ -749,6 +749,97 @@ function ScanView({ onAddPoints }) {
   )
 }
 
+// Manual Point Entry Form
+function ManualPointForm({ onSubmit, onCancel, activeTag }) {
+  const [term, setTerm] = useState('')
+  const [type, setType] = useState('vocabulary')
+  const [reading, setReading] = useState('')
+  const [meaningCN, setMeaningCN] = useState('')
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (!term.trim()) return
+    onSubmit({ term: term.trim(), type, reading: reading.trim() || null, meaningCN: meaningCN.trim() || null })
+    setTerm('')
+    setReading('')
+    setMeaningCN('')
+    // keep type so bulk entry of same type is faster
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white border border-blue-200 rounded-xl p-5 shadow-sm mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-800">
+          手动添加考点{activeTag ? <span className="ml-1.5 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">{activeTag}</span> : ''}
+        </h3>
+        <button type="button" onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="col-span-2 md:col-span-1">
+          <label className="block text-xs text-gray-500 mb-1">考点 *</label>
+          <input
+            type="text"
+            value={term}
+            onChange={e => setTerm(e.target.value)}
+            placeholder="日语词汇或语法..."
+            required
+            autoFocus
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none japanese-text"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">类型</label>
+          <select
+            value={type}
+            onChange={e => setType(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          >
+            <option value="vocabulary">单词</option>
+            <option value="grammar">语法</option>
+            <option value="collocation">搭配</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">读音（可选）</label>
+          <input
+            type="text"
+            value={reading}
+            onChange={e => setReading(e.target.value)}
+            placeholder="平假名读音"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-xs text-gray-500 mb-1">中文说明（可选）</label>
+          <input
+            type="text"
+            value={meaningCN}
+            onChange={e => setMeaningCN(e.target.value)}
+            placeholder="释义、用法说明..."
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          />
+        </div>
+      </div>
+      <div className="flex gap-2 justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 rounded-lg"
+        >
+          关闭
+        </button>
+        <button
+          type="submit"
+          disabled={!term.trim()}
+          className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+        >
+          添加考点
+        </button>
+      </div>
+    </form>
+  )
+}
+
 // Tag Editor Component
 function TagEditor({ point, userTags, onToggleTag, onCreateTag, onClose, editorRef }) {
   const [input, setInput] = useState('')
@@ -814,9 +905,10 @@ function TagEditor({ point, userTags, onToggleTag, onCreateTag, onClose, editorR
 }
 
 // Points List View Component
-function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag }) {
+function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAddPoint }) {
   const [activeTagFilter, setActiveTagFilter] = useState(null)
   const [openEditorId, setOpenEditorId] = useState(null)
+  const [showAddForm, setShowAddForm] = useState(false)
   const editorRef = useRef(null)
 
   useEffect(() => {
@@ -832,6 +924,17 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag }) {
 
   const handleToggleTag = (pointId, tag, active) => {
     onUpdatePointTags(pointId, tag, active)
+  }
+
+  const handleManualAdd = ({ term, type, reading, meaningCN }) => {
+    const point = toPoint({ term, type, reading, meaning_cn: meaningCN }, Date.now(), {
+      id: 'manual',
+      title: '手动输入',
+      kind: 'text',
+      size: 0,
+    })
+    if (activeTagFilter) point.customTags = [activeTagFilter]
+    onAddPoint(point)
   }
 
   const filteredPoints = activeTagFilter
@@ -857,37 +960,54 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag }) {
         按上传文件或图片归档，考点按单词、语法、阅读、听力整理。
       </p>
 
-      {/* Tag filter bar */}
-      {userTags.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-5">
-          <button
-            onClick={() => setActiveTagFilter(null)}
-            className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-              !activeTagFilter
-                ? 'bg-gray-800 text-white border-gray-800'
-                : 'bg-white text-gray-500 border-gray-300 hover:border-gray-500'
-            }`}
-          >
-            全部
-          </button>
-          {userTags.map(tag => {
-            const style = getTagStyle(tag, userTags)
-            const active = activeTagFilter === tag
-            return (
-              <button
-                key={tag}
-                onClick={() => setActiveTagFilter(active ? null : tag)}
-                className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                  active
-                    ? `${style.bg} ${style.text} border-current`
-                    : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                {tag}
-              </button>
-            )
-          })}
-        </div>
+      {/* Tag filter bar + add button */}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        {userTags.length > 0 && (
+          <>
+            <button
+              onClick={() => setActiveTagFilter(null)}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                !activeTagFilter
+                  ? 'bg-gray-800 text-white border-gray-800'
+                  : 'bg-white text-gray-500 border-gray-300 hover:border-gray-500'
+              }`}
+            >
+              全部
+            </button>
+            {userTags.map(tag => {
+              const style = getTagStyle(tag, userTags)
+              const active = activeTagFilter === tag
+              return (
+                <button
+                  key={tag}
+                  onClick={() => setActiveTagFilter(active ? null : tag)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                    active
+                      ? `${style.bg} ${style.text} border-current`
+                      : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  {tag}
+                </button>
+              )
+            })}
+            <span className="text-gray-300">|</span>
+          </>
+        )}
+        <button
+          onClick={() => setShowAddForm(v => !v)}
+          className="px-3 py-1 rounded-full text-xs font-medium border border-dashed border-blue-400 text-blue-600 hover:bg-blue-50 transition-colors"
+        >
+          ＋ 手动添加{activeTagFilter ? `到「${activeTagFilter}」` : '考点'}
+        </button>
+      </div>
+
+      {showAddForm && (
+        <ManualPointForm
+          activeTag={activeTagFilter}
+          onSubmit={handleManualAdd}
+          onCancel={() => setShowAddForm(false)}
+        />
       )}
 
       <div className="space-y-8">
@@ -1224,7 +1344,7 @@ function App() {
       {/* Content */}
       <main className="py-8 px-4">
         {view === 'scan' && <ScanView onAddPoints={addPoints} />}
-        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} />}
+        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} onAddPoint={p => addPoints([p])} />}
         {view === 'stats' && <StatisticsView points={points} />}
       </main>
 
