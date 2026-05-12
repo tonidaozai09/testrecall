@@ -917,7 +917,7 @@ function TagEditor({ point, userTags, onToggleTag, onCreateTag, onClose, editorR
 
 // Points List View Component
 function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAddPoint, sourceNames, onRenameSource }) {
-  const [activeTagFilter, setActiveTagFilter] = useState(null)
+  const [selectedFolder, setSelectedFolder] = useState(null) // null = folder grid; '__untagged__' or tag name = folder contents
   const [openEditorId, setOpenEditorId] = useState(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingSourceId, setEditingSourceId] = useState(null)
@@ -927,17 +927,13 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
   useEffect(() => {
     if (!openEditorId) return
     const handler = (e) => {
-      if (editorRef.current && !editorRef.current.contains(e.target)) {
-        setOpenEditorId(null)
-      }
+      if (editorRef.current && !editorRef.current.contains(e.target)) setOpenEditorId(null)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [openEditorId])
 
-  const handleToggleTag = (pointId, tag, active) => {
-    onUpdatePointTags(pointId, tag, active)
-  }
+  const handleToggleTag = (pointId, tag, active) => onUpdatePointTags(pointId, tag, active)
 
   const handleManualAdd = ({ term, type, reading, meaningCN }) => {
     const point = toPoint({ term, type, reading, meaning_cn: meaningCN }, Date.now(), {
@@ -946,7 +942,7 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
       kind: 'text',
       size: 0,
     })
-    if (activeTagFilter) point.customTags = [activeTagFilter]
+    if (selectedFolder && selectedFolder !== '__untagged__') point.customTags = [selectedFolder]
     onAddPoint(point)
   }
 
@@ -962,13 +958,25 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
 
   const getDisplayName = (source) => sourceNames[source.id] || getSourceLabel(source)
 
-  const filteredPoints = activeTagFilter
-    ? points.filter(p => (p.customTags || []).includes(activeTagFilter))
-    : points
+  const getFolderPoints = (folderId) =>
+    folderId === '__untagged__'
+      ? points.filter(p => !(p.customTags?.length))
+      : points.filter(p => (p.customTags || []).includes(folderId))
 
-  const sourceGroups = Object.values(groupBySource(filteredPoints))
+  // Build folder list: untagged first, then each user tag
+  const untaggedCount = points.filter(p => !(p.customTags?.length)).length
+  const folders = [
+    { id: '__untagged__', name: '未分类', count: untaggedCount, style: null },
+    ...userTags.map(tag => ({
+      id: tag,
+      name: tag,
+      count: points.filter(p => (p.customTags || []).includes(tag)).length,
+      style: getTagStyle(tag, userTags),
+    })),
+  ]
 
-  if (points.length === 0) {
+  // ── Empty state ──────────────────────────────────────────────────────────────
+  if (points.length === 0 && selectedFolder === null) {
     return (
       <div className="max-w-2xl mx-auto text-center py-12">
         <div className="text-6xl mb-4">📚</div>
@@ -978,58 +986,67 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
     )
   }
 
+  // ── Folder grid ──────────────────────────────────────────────────────────────
+  if (selectedFolder === null) {
+    return (
+      <div className="max-w-5xl mx-auto">
+        <h2 className="text-2xl font-bold text-gray-800 mb-6">📚 考点列表</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {folders.map(folder => (
+            <button
+              key={folder.id}
+              onClick={() => setSelectedFolder(folder.id)}
+              className="bg-white border border-gray-200 rounded-xl p-5 text-left hover:border-blue-300 hover:shadow-md transition-all"
+            >
+              <div className="text-3xl mb-3">{folder.id === '__untagged__' ? '📂' : '📁'}</div>
+              {folder.style ? (
+                <div className={`inline-block px-2 py-0.5 rounded text-xs font-medium mb-1 ${folder.style.bg} ${folder.style.text}`}>
+                  {folder.name}
+                </div>
+              ) : (
+                <div className="font-semibold text-gray-700 mb-1 truncate">{folder.name}</div>
+              )}
+              <div className="text-sm text-gray-400">{folder.count} 个考点</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Folder contents ──────────────────────────────────────────────────────────
+  const folderPoints = getFolderPoints(selectedFolder)
+  const sourceGroups = Object.values(groupBySource(folderPoints))
+  const activeFolder = folders.find(f => f.id === selectedFolder)
+
   return (
     <div className="max-w-5xl mx-auto">
-      <h2 className="text-2xl font-bold text-gray-800 mb-2">📚 考点列表</h2>
-      <p className="text-sm text-gray-500 mb-4">
-        按上传文件或图片归档，考点按单词、语法、阅读、听力整理。
-      </p>
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 mb-6">
+        <button
+          onClick={() => { setSelectedFolder(null); setShowAddForm(false) }}
+          className="text-sm text-gray-500 hover:text-blue-600 transition-colors"
+        >
+          ← 考点列表
+        </button>
+        <span className="text-gray-300">/</span>
+        <span className="text-sm font-medium text-gray-800">{activeFolder?.name}</span>
+        <span className="text-xs text-gray-400 ml-1">{folderPoints.length} 个考点</span>
+      </div>
 
-      {/* Tag filter bar + add button */}
-      <div className="flex flex-wrap items-center gap-2 mb-5">
-        {userTags.length > 0 && (
-          <>
-            <button
-              onClick={() => setActiveTagFilter(null)}
-              className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                !activeTagFilter
-                  ? 'bg-gray-800 text-white border-gray-800'
-                  : 'bg-white text-gray-500 border-gray-300 hover:border-gray-500'
-              }`}
-            >
-              全部
-            </button>
-            {userTags.map(tag => {
-              const style = getTagStyle(tag, userTags)
-              const active = activeTagFilter === tag
-              return (
-                <button
-                  key={tag}
-                  onClick={() => setActiveTagFilter(active ? null : tag)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
-                    active
-                      ? `${style.bg} ${style.text} border-current`
-                      : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  {tag}
-                </button>
-              )
-            })}
-            <span className="text-gray-300">|</span>
-          </>
-        )}
+      {/* Add button */}
+      <div className="mb-5">
         <button
           onClick={() => setShowAddForm(v => !v)}
           className="px-3 py-1 rounded-full text-xs font-medium border border-dashed border-blue-400 text-blue-600 hover:bg-blue-50 transition-colors"
         >
-          ＋ 手动添加{activeTagFilter ? `到「${activeTagFilter}」` : '考点'}
+          ＋ 手动添加{selectedFolder !== '__untagged__' ? `到「${selectedFolder}」` : '考点'}
         </button>
       </div>
 
       {showAddForm && (
         <ManualPointForm
-          activeTag={activeTagFilter}
+          activeTag={selectedFolder !== '__untagged__' ? selectedFolder : null}
           onSubmit={handleManualAdd}
           onCancel={() => setShowAddForm(false)}
         />
@@ -1071,9 +1088,7 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                   </div>
                 </div>
                 {source.addedAt && (
-                  <div className="text-sm text-gray-400">
-                    {formatDate(source.addedAt)}
-                  </div>
+                  <div className="text-sm text-gray-400">{formatDate(source.addedAt)}</div>
                 )}
               </div>
             </div>
