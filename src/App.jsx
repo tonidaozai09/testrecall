@@ -997,7 +997,7 @@ function SourceCategoryEditor({ sourceId, currentCategory, allCategories, onAssi
 }
 
 // Points List View Component
-function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAddPoint, sourceNames, onRenameSource, sourceCategories, onAssignSourceCategory }) {
+function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAddPoint, sourceNames, onRenameSource, sourceCategories, onAssignSourceCategory, onDeletePoint }) {
   const [selectedFolder, setSelectedFolder] = useState(null) // null = folder grid; '__uncat__' or category name
   const [openEditorId, setOpenEditorId] = useState(null)     // point tag editor
   const [openCatEditorId, setOpenCatEditorId] = useState(null) // source category editor
@@ -1219,6 +1219,7 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                               <th className="py-2 px-3 font-medium">中文说明</th>
                               <th className="py-2 pl-3 font-medium hidden lg:table-cell">例句/提示</th>
                               <th className="py-2 pl-3 font-medium">分类</th>
+                              <th className="py-2 pl-2 font-medium w-6"></th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
@@ -1285,6 +1286,17 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                                         />
                                       )}
                                     </div>
+                                  </td>
+                                  <td className="py-3 pl-2">
+                                    <button
+                                      onClick={() => onDeletePoint(point.id)}
+                                      className="text-gray-300 hover:text-red-500 transition-colors"
+                                      title="删除考点"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                      </svg>
+                                    </button>
                                   </td>
                                 </tr>
                               )
@@ -1441,6 +1453,10 @@ function App() {
     setSourceNames(prev => ({ ...prev, [sourceId]: name }))
   }
 
+  const deletePoint = (pointId) => {
+    setPoints(prev => prev.filter(p => p.id !== pointId))
+  }
+
   const assignSourceCategory = (sourceId, category) => {
     setSourceCategories(prev => {
       const next = { ...prev }
@@ -1519,7 +1535,7 @@ function App() {
       {/* Content */}
       <main className="py-8 px-4">
         {view === 'scan' && <ScanView onAddPoints={addPoints} />}
-        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} onAddPoint={p => addPoints([p])} sourceNames={sourceNames} onRenameSource={renameSource} sourceCategories={sourceCategories} onAssignSourceCategory={assignSourceCategory} />}
+        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} onAddPoint={p => addPoints([p])} sourceNames={sourceNames} onRenameSource={renameSource} sourceCategories={sourceCategories} onAssignSourceCategory={assignSourceCategory} onDeletePoint={deletePoint} />}
         {view === 'stats' && <StatisticsView points={points} />}
       </main>
 
