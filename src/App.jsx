@@ -10,8 +10,8 @@ const GROQ_FALLBACK_MODEL = 'llama-3.1-8b-instant'
 
 // Gemini API — image vision (much better Japanese OCR, free tier)
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || ''
-const GEMINI_VISION_MODEL = 'gemini-2.0-flash'
-const GEMINI_FALLBACK_MODEL = 'gemini-2.5-flash'
+const GEMINI_VISION_MODEL = 'gemini-2.5-flash'
+const GEMINI_FALLBACK_MODEL = 'gemini-1.5-flash'
 
 const OCR_LANGS = 'jpn+chi_sim+eng'
 const PDF_OCR_SCALE = 2
