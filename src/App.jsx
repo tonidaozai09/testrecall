@@ -220,6 +220,17 @@ const saveSourceNames = (names) => {
   localStorage.setItem('testrecall_source_names', JSON.stringify(names))
 }
 
+const loadSourceCategories = () => {
+  try {
+    const saved = localStorage.getItem('testrecall_source_categories')
+    return saved ? JSON.parse(saved) : {}
+  } catch { return {} }
+}
+
+const saveSourceCategories = (cats) => {
+  localStorage.setItem('testrecall_source_categories', JSON.stringify(cats))
+}
+
 const buildSourceMeta = (file, kind) => ({
   id: `${kind}-${file.name}-${file.size}-${file.lastModified}`,
   title: file.name,
@@ -915,23 +926,83 @@ function TagEditor({ point, userTags, onToggleTag, onCreateTag, onClose, editorR
   )
 }
 
+// Source Category Editor
+function SourceCategoryEditor({ sourceId, currentCategory, allCategories, onAssign, onClose, editorRef }) {
+  const [input, setInput] = useState('')
+
+  const pick = (cat) => { onAssign(sourceId, cat); onClose() }
+
+  return (
+    <div ref={editorRef} className="absolute z-30 bg-white border border-gray-200 rounded-xl shadow-xl p-3 w-52 top-full left-0 mt-1">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium text-gray-500">归入分类</span>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+      </div>
+      <div className="flex flex-col gap-0.5 mb-2">
+        {allCategories.map(cat => (
+          <button
+            key={cat}
+            onClick={() => pick(cat)}
+            className={`text-left px-2 py-1.5 rounded text-xs transition-colors ${
+              currentCategory === cat
+                ? 'bg-blue-100 text-blue-700 font-medium'
+                : 'hover:bg-gray-100 text-gray-700'
+            }`}
+          >
+            {currentCategory === cat && '✓ '}{cat}
+          </button>
+        ))}
+        {allCategories.length === 0 && (
+          <p className="text-xs text-gray-400 px-2">还没有分类，在下方新建</p>
+        )}
+        {currentCategory && (
+          <button onClick={() => pick(null)} className="text-left px-2 py-1.5 rounded text-xs text-red-500 hover:bg-red-50 mt-1">
+            移出分类
+          </button>
+        )}
+      </div>
+      <div className="flex gap-1.5">
+        <input
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && input.trim() && pick(input.trim())}
+          placeholder="新建分类..."
+          autoFocus
+          className="flex-1 text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+        <button
+          onClick={() => input.trim() && pick(input.trim())}
+          disabled={!input.trim()}
+          className="px-2 py-1 bg-blue-600 text-white text-xs rounded disabled:opacity-40 hover:bg-blue-700"
+        >
+          创建
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // Points List View Component
-function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAddPoint, sourceNames, onRenameSource }) {
-  const [selectedFolder, setSelectedFolder] = useState(null) // null = folder grid; '__untagged__' or tag name = folder contents
-  const [openEditorId, setOpenEditorId] = useState(null)
+function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAddPoint, sourceNames, onRenameSource, sourceCategories, onAssignSourceCategory }) {
+  const [selectedFolder, setSelectedFolder] = useState(null) // null = folder grid; '__uncat__' or category name
+  const [openEditorId, setOpenEditorId] = useState(null)     // point tag editor
+  const [openCatEditorId, setOpenCatEditorId] = useState(null) // source category editor
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingSourceId, setEditingSourceId] = useState(null)
   const [editingSourceName, setEditingSourceName] = useState('')
-  const editorRef = useRef(null)
+  const tagEditorRef = useRef(null)
+  const catEditorRef = useRef(null)
 
   useEffect(() => {
-    if (!openEditorId) return
+    if (!openEditorId && !openCatEditorId) return
     const handler = (e) => {
-      if (editorRef.current && !editorRef.current.contains(e.target)) setOpenEditorId(null)
+      if (openEditorId && tagEditorRef.current && !tagEditorRef.current.contains(e.target)) setOpenEditorId(null)
+      if (openCatEditorId && catEditorRef.current && !catEditorRef.current.contains(e.target)) setOpenCatEditorId(null)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [openEditorId])
+  }, [openEditorId, openCatEditorId])
 
   const handleToggleTag = (pointId, tag, active) => onUpdatePointTags(pointId, tag, active)
 
@@ -942,7 +1013,6 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
       kind: 'text',
       size: 0,
     })
-    if (selectedFolder && selectedFolder !== '__untagged__') point.customTags = [selectedFolder]
     onAddPoint(point)
   }
 
@@ -958,22 +1028,32 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
 
   const getDisplayName = (source) => sourceNames[source.id] || getSourceLabel(source)
 
-  const getFolderPoints = (folderId) =>
-    folderId === '__untagged__'
-      ? points.filter(p => !(p.customTags?.length))
-      : points.filter(p => (p.customTags || []).includes(folderId))
-
-  // Build folder list: untagged first, then each user tag
-  const untaggedCount = points.filter(p => !(p.customTags?.length)).length
+  // ── Build folder data from source categories ─────────────────────────────────
+  const allSourceGroups = Object.values(groupBySource(points))
+  const byCategory = {}
+  allSourceGroups.forEach(({ source, points: srcPoints }) => {
+    const cat = sourceCategories[source.id] || '__uncat__'
+    if (!byCategory[cat]) byCategory[cat] = []
+    byCategory[cat].push({ source, points: srcPoints })
+  })
+  const distinctCategories = [...new Set(Object.values(sourceCategories).filter(Boolean))]
   const folders = [
-    { id: '__untagged__', name: '未分类', count: untaggedCount, style: null },
-    ...userTags.map(tag => ({
-      id: tag,
-      name: tag,
-      count: points.filter(p => (p.customTags || []).includes(tag)).length,
-      style: getTagStyle(tag, userTags),
+    {
+      id: '__uncat__',
+      name: '未分类',
+      groups: byCategory['__uncat__'] || [],
+      pointCount: (byCategory['__uncat__'] || []).reduce((s, g) => s + g.points.length, 0),
+    },
+    ...distinctCategories.map(cat => ({
+      id: cat,
+      name: cat,
+      groups: byCategory[cat] || [],
+      pointCount: (byCategory[cat] || []).reduce((s, g) => s + g.points.length, 0),
     })),
   ]
+
+  const activeFolder = folders.find(f => f.id === selectedFolder)
+  const sourceGroups = activeFolder?.groups || []
 
   // ── Empty state ──────────────────────────────────────────────────────────────
   if (points.length === 0 && selectedFolder === null) {
@@ -998,26 +1078,15 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
               onClick={() => setSelectedFolder(folder.id)}
               className="bg-white border border-gray-200 rounded-xl p-5 text-left hover:border-blue-300 hover:shadow-md transition-all"
             >
-              <div className="text-3xl mb-3">{folder.id === '__untagged__' ? '📂' : '📁'}</div>
-              {folder.style ? (
-                <div className={`inline-block px-2 py-0.5 rounded text-xs font-medium mb-1 ${folder.style.bg} ${folder.style.text}`}>
-                  {folder.name}
-                </div>
-              ) : (
-                <div className="font-semibold text-gray-700 mb-1 truncate">{folder.name}</div>
-              )}
-              <div className="text-sm text-gray-400">{folder.count} 个考点</div>
+              <div className="text-3xl mb-3">{folder.id === '__uncat__' ? '📂' : '📁'}</div>
+              <div className="font-semibold text-gray-800 mb-1 truncate">{folder.name}</div>
+              <div className="text-xs text-gray-400">{folder.groups.length} 个来源 · {folder.pointCount} 个考点</div>
             </button>
           ))}
         </div>
       </div>
     )
   }
-
-  // ── Folder contents ──────────────────────────────────────────────────────────
-  const folderPoints = getFolderPoints(selectedFolder)
-  const sourceGroups = Object.values(groupBySource(folderPoints))
-  const activeFolder = folders.find(f => f.id === selectedFolder)
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -1031,7 +1100,7 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
         </button>
         <span className="text-gray-300">/</span>
         <span className="text-sm font-medium text-gray-800">{activeFolder?.name}</span>
-        <span className="text-xs text-gray-400 ml-1">{folderPoints.length} 个考点</span>
+        <span className="text-xs text-gray-400 ml-1">{activeFolder?.pointCount ?? 0} 个考点</span>
       </div>
 
       {/* Add button */}
@@ -1040,13 +1109,13 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
           onClick={() => setShowAddForm(v => !v)}
           className="px-3 py-1 rounded-full text-xs font-medium border border-dashed border-blue-400 text-blue-600 hover:bg-blue-50 transition-colors"
         >
-          ＋ 手动添加{selectedFolder !== '__untagged__' ? `到「${selectedFolder}」` : '考点'}
+          ＋ 手动添加考点
         </button>
       </div>
 
       {showAddForm && (
         <ManualPointForm
-          activeTag={selectedFolder !== '__untagged__' ? selectedFolder : null}
+          activeTag={null}
           onSubmit={handleManualAdd}
           onCancel={() => setShowAddForm(false)}
         />
@@ -1072,7 +1141,7 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                       className="text-lg font-semibold text-gray-900 bg-white border border-blue-400 rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 w-72"
                     />
                   ) : (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="text-lg font-semibold text-gray-900">{getDisplayName(source)}</h3>
                       <button
                         onClick={() => startRename(source.id, getDisplayName(source))}
@@ -1081,6 +1150,25 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                       >
                         ✏️
                       </button>
+                      <div className="relative">
+                        <button
+                          onClick={() => setOpenCatEditorId(openCatEditorId === source.id ? null : source.id)}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded border border-dashed border-gray-300 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                          title="归入分类"
+                        >
+                          🏷 {sourceCategories[source.id] ? sourceCategories[source.id] : '归入分类'}
+                        </button>
+                        {openCatEditorId === source.id && (
+                          <SourceCategoryEditor
+                            sourceId={source.id}
+                            currentCategory={sourceCategories[source.id] || null}
+                            allCategories={distinctCategories}
+                            onAssign={(sid, cat) => { onAssignSourceCategory(sid, cat); setOpenCatEditorId(null) }}
+                            onClose={() => setOpenCatEditorId(null)}
+                            editorRef={catEditorRef}
+                          />
+                        )}
+                      </div>
                     </div>
                   )}
                   <div className="text-sm text-gray-500">
@@ -1180,7 +1268,7 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                                           onToggleTag={handleToggleTag}
                                           onCreateTag={onCreateTag}
                                           onClose={() => setOpenEditorId(null)}
-                                          editorRef={editorRef}
+                                          editorRef={tagEditorRef}
                                         />
                                       )}
                                     </div>
@@ -1313,18 +1401,12 @@ function App() {
   const [points, setPoints] = useState(loadData)
   const [userTags, setUserTags] = useState(loadUserTags)
   const [sourceNames, setSourceNames] = useState(loadSourceNames)
+  const [sourceCategories, setSourceCategories] = useState(loadSourceCategories)
 
-  useEffect(() => {
-    saveData(points)
-  }, [points])
-
-  useEffect(() => {
-    saveUserTags(userTags)
-  }, [userTags])
-
-  useEffect(() => {
-    saveSourceNames(sourceNames)
-  }, [sourceNames])
+  useEffect(() => { saveData(points) }, [points])
+  useEffect(() => { saveUserTags(userTags) }, [userTags])
+  useEffect(() => { saveSourceNames(sourceNames) }, [sourceNames])
+  useEffect(() => { saveSourceCategories(sourceCategories) }, [sourceCategories])
 
   const addPoints = (newPoints) => {
     setPoints(prev => {
@@ -1344,6 +1426,15 @@ function App() {
   const renameSource = (sourceId, name) => {
     if (!name) return
     setSourceNames(prev => ({ ...prev, [sourceId]: name }))
+  }
+
+  const assignSourceCategory = (sourceId, category) => {
+    setSourceCategories(prev => {
+      const next = { ...prev }
+      if (category) next[sourceId] = category
+      else delete next[sourceId]
+      return next
+    })
   }
 
   const createTag = (name) => {
@@ -1415,7 +1506,7 @@ function App() {
       {/* Content */}
       <main className="py-8 px-4">
         {view === 'scan' && <ScanView onAddPoints={addPoints} />}
-        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} onAddPoint={p => addPoints([p])} sourceNames={sourceNames} onRenameSource={renameSource} />}
+        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} onAddPoint={p => addPoints([p])} sourceNames={sourceNames} onRenameSource={renameSource} sourceCategories={sourceCategories} onAssignSourceCategory={assignSourceCategory} />}
         {view === 'stats' && <StatisticsView points={points} />}
       </main>
 
