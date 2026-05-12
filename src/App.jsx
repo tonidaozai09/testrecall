@@ -1055,11 +1055,11 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                       className="text-lg font-semibold text-gray-900 bg-white border border-blue-400 rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 w-72"
                     />
                   ) : (
-                    <div className="flex items-center gap-2 group">
+                    <div className="flex items-center gap-2">
                       <h3 className="text-lg font-semibold text-gray-900">{getDisplayName(source)}</h3>
                       <button
                         onClick={() => startRename(source.id, getDisplayName(source))}
-                        className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-all text-sm"
+                        className="text-gray-400 hover:text-blue-500 transition-colors text-sm"
                         title="重命名"
                       >
                         ✏️
