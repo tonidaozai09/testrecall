@@ -347,6 +347,41 @@ const sortBySourceOrder = (candidates, sourceText) => {
   return [...candidates].sort((a, b) => pos(a.term) - pos(b.term))
 }
 
+const fillMissingExamples = async (points, onUpdate, onProgress) => {
+  const toFill = points.filter(p => !p.example)
+  if (toFill.length === 0) return 0
+
+  const BATCH = 20
+  let filled = 0
+  for (let i = 0; i < toFill.length; i += BATCH) {
+    const batch = toFill.slice(i, i + BATCH)
+    const input = batch.map(p => ({ id: p.id, term: p.term, type: p.type, connection: p.connection || undefined }))
+    try {
+      const content = await callGroq(
+        [
+          { role: 'system', content: '你是日语教学专家。只返回JSON数组，不要其他文字。' },
+          {
+            role: 'user',
+            content: `为以下JLPT N1考点各补充一个自然的日语例句（10-20字）：
+- vocabulary/collocation：含该词的完整句子
+- grammar：展示接续用法的完整句子，按connection字段的接续形式造句
+
+只返回JSON数组：[{"id":"xxx","example":"例句"}]
+
+考点：${JSON.stringify(input)}`,
+          },
+        ],
+        GROQ_TEXT_MODEL,
+        0,
+      )
+      const results = JSON.parse(content.match(/\[[\s\S]*\]/)?.[0] || '[]')
+      results.forEach(r => { if (r.id && r.example) { onUpdate(r.id, r.example); filled++ } })
+    } catch {}
+    if (onProgress) onProgress(Math.min(i + BATCH, toFill.length), toFill.length)
+  }
+  return filled
+}
+
 const extractImageText = async (imageLike) => {
   const result = await Tesseract.recognize(imageLike, OCR_LANGS, {
     logger: () => {}
@@ -997,11 +1032,13 @@ function SourceCategoryEditor({ sourceId, currentCategory, allCategories, onAssi
 }
 
 // Points List View Component
-function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAddPoint, sourceNames, onRenameSource, sourceCategories, onAssignSourceCategory, onDeletePoint }) {
+function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAddPoint, sourceNames, onRenameSource, sourceCategories, onAssignSourceCategory, onDeletePoint, onUpdatePointExample }) {
   const [selectedFolder, setSelectedFolder] = useState(null) // null = folder grid; '__uncat__' or category name
   const [openEditorId, setOpenEditorId] = useState(null)     // point tag editor
   const [openCatEditorId, setOpenCatEditorId] = useState(null) // source category editor
   const [showAddForm, setShowAddForm] = useState(false)
+  const [filling, setFilling] = useState(false)
+  const [fillProgress, setFillProgress] = useState(null) // { done, total }
   const [editingSourceId, setEditingSourceId] = useState(null)
   const [editingSourceName, setEditingSourceName] = useState('')
   const tagEditorRef = useRef(null)
@@ -1116,14 +1153,38 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
         <span className="text-xs text-gray-400 ml-1">{activeFolder?.pointCount ?? 0} 个考点</span>
       </div>
 
-      {/* Add button */}
-      <div className="mb-5">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
         <button
           onClick={() => setShowAddForm(v => !v)}
           className="px-3 py-1 rounded-full text-xs font-medium border border-dashed border-blue-400 text-blue-600 hover:bg-blue-50 transition-colors"
         >
           ＋ 手动添加考点
         </button>
+        {(() => {
+          const missing = sourceGroups.flatMap(g => g.points).filter(p => !p.example).length
+          return (
+            <button
+              disabled={filling || missing === 0}
+              onClick={async () => {
+                setFilling(true)
+                setFillProgress({ done: 0, total: sourceGroups.flatMap(g => g.points).filter(p => !p.example).length })
+                await fillMissingExamples(
+                  sourceGroups.flatMap(g => g.points),
+                  onUpdatePointExample,
+                  (done, total) => setFillProgress({ done, total }),
+                )
+                setFilling(false)
+                setFillProgress(null)
+              }}
+              className="px-3 py-1 rounded-full text-xs font-medium border border-dashed border-purple-400 text-purple-600 hover:bg-purple-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {filling
+                ? `✨ 补全中… ${fillProgress ? `${fillProgress.done}/${fillProgress.total}` : ''}`
+                : missing > 0 ? `✨ 补全例句（${missing} 个缺失）` : '✨ 例句已全'}
+            </button>
+          )
+        })()}
       </div>
 
       {showAddForm && (
@@ -1457,6 +1518,10 @@ function App() {
     setPoints(prev => prev.filter(p => p.id !== pointId))
   }
 
+  const updatePointExample = (pointId, example) => {
+    setPoints(prev => prev.map(p => p.id === pointId ? { ...p, example } : p))
+  }
+
   const assignSourceCategory = (sourceId, category) => {
     setSourceCategories(prev => {
       const next = { ...prev }
@@ -1535,7 +1600,7 @@ function App() {
       {/* Content */}
       <main className="py-8 px-4">
         {view === 'scan' && <ScanView onAddPoints={addPoints} />}
-        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} onAddPoint={p => addPoints([p])} sourceNames={sourceNames} onRenameSource={renameSource} sourceCategories={sourceCategories} onAssignSourceCategory={assignSourceCategory} onDeletePoint={deletePoint} />}
+        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} onAddPoint={p => addPoints([p])} sourceNames={sourceNames} onRenameSource={renameSource} sourceCategories={sourceCategories} onAssignSourceCategory={assignSourceCategory} onDeletePoint={deletePoint} onUpdatePointExample={updatePointExample} />}
         {view === 'stats' && <StatisticsView points={points} />}
       </main>
 
