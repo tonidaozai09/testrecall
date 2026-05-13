@@ -1193,7 +1193,7 @@ function SourceCategoryEditor({ sourceId, currentCategory, allCategories, onAssi
 }
 
 // Points List View Component
-function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAddPoint, sourceNames, onRenameSource, sourceCategories, onAssignSourceCategory, onDeletePoint, onUpdatePointExample, onUpdateGrammarStyle }) {
+function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAddPoint, sourceNames, onRenameSource, sourceCategories, onAssignSourceCategory, onDeletePoint, onUpdatePointExample, onUpdateGrammarStyle, onMergeSources }) {
   const [selectedFolder, setSelectedFolder] = useState(null) // null = folder grid; '__uncat__' or category name
   const [openEditorId, setOpenEditorId] = useState(null)     // point tag editor
   const [openCatEditorId, setOpenCatEditorId] = useState(null) // source category editor
@@ -1203,6 +1203,7 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
   const [collapsedSections, setCollapsedSections] = useState({}) // key: `${sourceId}-${sectionId}`
   const [editingSourceId, setEditingSourceId] = useState(null)
   const [editingSourceName, setEditingSourceName] = useState('')
+  const [selectedSources, setSelectedSources] = useState(new Set()) // for merge
   const tagEditorRef = useRef(null)
   const catEditorRef = useRef(null)
 
@@ -1323,6 +1324,19 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
         >
           ＋ 手动添加考点
         </button>
+        {selectedSources.size >= 2 && (
+          <button
+            onClick={() => {
+              const name = prompt(`合并 ${selectedSources.size} 个来源，请输入合并后的名称：`, '合并考点')
+              if (!name?.trim()) return
+              onMergeSources([...selectedSources], name.trim())
+              setSelectedSources(new Set())
+            }}
+            className="px-3 py-1 rounded-full text-xs font-medium border border-dashed border-orange-400 text-orange-600 hover:bg-orange-50 transition-colors"
+          >
+            ⊕ 合并选中来源（{selectedSources.size}）
+          </button>
+        )}
         <button
           onClick={() => {
             const html = generatePrintHTML(activeFolder?.name || selectedFolder, sourceGroups, sourceNames)
@@ -1374,9 +1388,21 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
           <div className="text-center py-12 text-gray-400">该分类下暂无考点</div>
         )}
         {sourceGroups.map(({ source, points: sourcePoints }) => (
-          <section key={source.id || getSourceLabel(source)} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <section key={source.id || getSourceLabel(source)} className={`bg-white border rounded-xl overflow-hidden transition-colors ${selectedSources.has(source.id) ? 'border-orange-400 ring-1 ring-orange-300' : 'border-gray-200'}`}>
             <div className="px-5 py-4 border-b border-gray-200 bg-gray-50">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedSources.has(source.id)}
+                    onChange={e => setSelectedSources(prev => {
+                      const next = new Set(prev)
+                      e.target.checked ? next.add(source.id) : next.delete(source.id)
+                      return next
+                    })}
+                    className="mt-1 h-4 w-4 rounded border-gray-300 accent-orange-500 cursor-pointer shrink-0"
+                    title="选择此来源以合并"
+                  />
                 <div>
                   {editingSourceId === source.id ? (
                     <input
@@ -1422,6 +1448,7 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                   <div className="text-sm text-gray-500">
                     {getSourceKindLabel(source.kind)}{source.size ? ` · ${formatFileSize(source.size)}` : ''} · {sourcePoints.length} 个考点
                   </div>
+                </div>
                 </div>
                 {source.addedAt && (
                   <div className="text-sm text-gray-400">{formatDate(source.addedAt)}</div>
@@ -1709,6 +1736,42 @@ function App() {
     })
   }
 
+  const mergeSources = (sourceIds, mergedName) => {
+    if (sourceIds.length < 2) return
+    const mergedSourceId = `merged-${Date.now()}`
+    const mergedSource = { id: mergedSourceId, title: mergedName, kind: 'merged', size: 0, addedAt: new Date().toISOString() }
+    const idSet = new Set(sourceIds)
+    setPoints(prev => {
+      const toMerge = prev.filter(p => idSet.has((p.source || defaultSource).id))
+      const rest = prev.filter(p => !idSet.has((p.source || defaultSource).id))
+      // deduplicate merged points by term+type
+      const seen = new Map()
+      toMerge.forEach(p => {
+        const key = getPointKey(p)
+        if (seen.has(key)) {
+          seen.get(key).occurrenceCount = (seen.get(key).occurrenceCount || 1) + 1
+        } else {
+          seen.set(key, { ...p, source: mergedSource })
+        }
+      })
+      return [...rest, ...seen.values()]
+    })
+    // carry over the category from the first selected source
+    setSourceCategories(prev => {
+      const next = { ...prev }
+      const cat = sourceIds.map(id => prev[id]).find(Boolean)
+      sourceIds.forEach(id => delete next[id])
+      if (cat) next[mergedSourceId] = cat
+      return next
+    })
+    setSourceNames(prev => {
+      const next = { ...prev }
+      sourceIds.forEach(id => delete next[id])
+      next[mergedSourceId] = mergedName
+      return next
+    })
+  }
+
   const createTag = (name) => {
     setUserTags(prev => prev.includes(name) ? prev : [...prev, name])
   }
@@ -1778,7 +1841,7 @@ function App() {
       {/* Content */}
       <main className="py-8 px-4">
         {view === 'scan' && <ScanView onAddPoints={addPoints} />}
-        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} onAddPoint={p => addPoints([p])} sourceNames={sourceNames} onRenameSource={renameSource} sourceCategories={sourceCategories} onAssignSourceCategory={assignSourceCategory} onDeletePoint={deletePoint} onUpdatePointExample={updatePointExample} onUpdateGrammarStyle={updateGrammarStyle} />}
+        {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} onAddPoint={p => addPoints([p])} sourceNames={sourceNames} onRenameSource={renameSource} sourceCategories={sourceCategories} onAssignSourceCategory={assignSourceCategory} onDeletePoint={deletePoint} onUpdatePointExample={updatePointExample} onUpdateGrammarStyle={updateGrammarStyle} onMergeSources={mergeSources} />}
         {view === 'stats' && <StatisticsView points={points} />}
       </main>
 
