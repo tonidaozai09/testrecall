@@ -1773,17 +1773,26 @@ function App() {
     setPoints(prev => {
       const toMerge = prev.filter(p => idSet.has((p.source || defaultSource).id))
       const rest = prev.filter(p => !idSet.has((p.source || defaultSource).id))
-      // deduplicate merged points by term+type
-      const seen = new Map()
+      // build key set from rest to dedup against existing points
+      const restKeys = new Map(rest.map(p => [getPointKey(p), p]))
+      // dedup within toMerge, then dedup against rest
+      const merged = new Map()
       toMerge.forEach(p => {
         const key = getPointKey(p)
-        if (seen.has(key)) {
-          seen.get(key).occurrenceCount = (seen.get(key).occurrenceCount || 1) + 1
+        if (merged.has(key)) {
+          merged.get(key).occurrenceCount = (merged.get(key).occurrenceCount || 1) + 1
         } else {
-          seen.set(key, { ...p, source: mergedSource })
+          merged.set(key, { ...p, source: mergedSource })
         }
       })
-      return [...rest, ...seen.values()]
+      // for keys already in rest, bump occurrenceCount there instead of adding duplicate
+      merged.forEach((p, key) => {
+        if (restKeys.has(key)) {
+          restKeys.get(key).occurrenceCount = (restKeys.get(key).occurrenceCount || 1) + (p.occurrenceCount || 1)
+          merged.delete(key)
+        }
+      })
+      return [...rest, ...merged.values()]
     })
     // carry over the category from the first selected source
     setSourceCategories(prev => {
