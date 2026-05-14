@@ -56,6 +56,21 @@ const TYPE_LABELS = {
   expression: '表达',
 }
 
+// Grammar functional groups (周业繁 framework: classify by speaker intent)
+const GRAMMAR_GROUPS = [
+  { id: 'concession',   label: '让步・转折',  color: 'bg-purple-50 text-purple-600',  desc: '尽管…仍然…' },
+  { id: 'emphasis',     label: '强调・极端',  color: 'bg-red-50 text-red-600',        desc: '正是…、不过是…' },
+  { id: 'condition',    label: '条件・假设',  color: 'bg-yellow-50 text-yellow-700',  desc: '如果…就…' },
+  { id: 'emotion',      label: '情感・态度',  color: 'bg-pink-50 text-pink-600',      desc: '忍不住…、非常…' },
+  { id: 'cause',        label: '原因・理由',  color: 'bg-orange-50 text-orange-600',  desc: '正因为…所以…' },
+  { id: 'temporal',     label: '时间・顺序',  color: 'bg-blue-50 text-blue-600',      desc: '随着…、一…就…' },
+  { id: 'purpose',      label: '目的・对象',  color: 'bg-teal-50 text-teal-600',      desc: '为了…、针对…' },
+  { id: 'scope',        label: '限定・范围',  color: 'bg-indigo-50 text-indigo-600',  desc: '不仅…、就连…' },
+  { id: 'possibility',  label: '推断・可能',  color: 'bg-gray-100 text-gray-600',     desc: '说不定…、一定…' },
+  { id: 'change',       label: '变化・对应',  color: 'bg-green-50 text-green-600',    desc: '随…变化、与…相应' },
+]
+const GRAMMAR_GROUP_MAP = Object.fromEntries(GRAMMAR_GROUPS.map(g => [g.id, g]))
+
 const STUDY_SECTIONS = [
   {
     id: 'vocabulary',
@@ -139,7 +154,8 @@ const toPoint = (item, idx, source = defaultSource) => {
     level: item.level || null,
     usage: item.usage || null,
     example: item.example || null,
-    grammarStyle: item.grammar_style || item.grammarStyle || null, // 'daily' | 'formal' | null
+    grammarStyle: item.grammar_style || item.grammarStyle || null,
+    grammarGroup: item.grammar_group || item.grammarGroup || null, // concession/emphasis/condition/emotion/cause/temporal/purpose/scope/possibility/change
     related: normalizeRelated(item.related),
     sourceExam: item.source_exam || item.sourceExam || null,
     source,
@@ -202,7 +218,7 @@ const buildExtractionRules = (levels) => {
     : ''
   return `
 類型：
-- grammar = ${levelStr}級別語法句型，通常是複合助詞或接続形式，例：〜にもかかわらず・〜を皮切りに・〜に際して・〜ずにはおかない・〜かねない・〜をもって・〜に至る${excludeGrammarNote}。grammar類型必須額外返回grammar_style字段：'daily'（日常口語/会話中常用）或'formal'（書面語/正式文章中使用）
+- grammar = ${levelStr}級別語法句型，通常是複合助詞或接続形式，例：〜にもかかわらず・〜を皮切りに・〜に際して・〜ずにはおかない・〜かねない・〜をもって・〜に至る${excludeGrammarNote}。grammar類型必須額外返回：grammar_style字段：'daily'或'formal'；grammar_group字段（从以下选一个）：concession(让步转折)・emphasis(强调极端)・condition(条件假设)・emotion(情感态度)・cause(原因理由)・temporal(时间顺序)・purpose(目的对象)・scope(限定范围)・possibility(推断可能)・change(变化对应)
 - collocation = 两词以上的惯用表达，整体含义无法从各词字面推导（例：気が置けない・手が込む・目を見張る）。普通的「名词+助词」短語不是collocation
 - vocabulary = 仅限${levelStr}程度词汇（名詞/動詞/形容詞/副詞），動詞寫辭書形${excludeVocabNote}
 
@@ -417,6 +433,26 @@ const normalizeDictForms = async (candidates) => {
     } catch { /* keep originals for this batch */ }
   }
   return candidates.map(c => (normMap[c.id] ? { ...c, term: normMap[c.id] } : c))
+}
+
+const classifyGrammarGroups = async (grammarPoints, onUpdate) => {
+  const toClassify = grammarPoints.filter(p => p.type === 'grammar' && !p.grammarGroup)
+  if (toClassify.length === 0) return
+  const BATCH = 30
+  for (let i = 0; i < toClassify.length; i += BATCH) {
+    const batch = toClassify.slice(i, i + BATCH).map(p => ({ id: p.id, term: p.term, meaning: p.meaningCN || '' }))
+    try {
+      const content = await callGroq([
+        { role: 'system', content: '你是日语语法专家。只返回JSON数组，不要其他文字。' },
+        { role: 'user', content: `将以下日语语法句型按功能分类，grammar_group从以下选一个：concession(让步转折)/emphasis(强调极端)/condition(条件假设)/emotion(情感态度)/cause(原因理由)/temporal(时间顺序)/purpose(目的对象)/scope(限定范围)/possibility(推断可能)/change(变化对应)
+
+输入：${JSON.stringify(batch)}
+输出：[{"id":"xxx","grammar_group":"concession"}]` },
+      ], GROQ_TEXT_MODEL, 0)
+      const results = JSON.parse(content.match(/\[[\s\S]*\]/)?.[0] || '[]')
+      results.forEach(r => { if (r.id && r.grammar_group) onUpdate(r.id, r.grammar_group) })
+    } catch { /* skip batch */ }
+  }
 }
 
 const sortBySourceOrder = (candidates, sourceText) => {
@@ -1616,6 +1652,8 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                               // Word-specific study tags
                               const examTags = []
                               if (point.type === 'grammar') {
+                                const gg = point.grammarGroup && GRAMMAR_GROUP_MAP[point.grammarGroup]
+                                if (gg) examTags.push({ label: gg.label, color: gg.color })
                                 if (point.grammarStyle === 'formal') examTags.push({ label: '书面语', color: 'bg-blue-50 text-blue-600' })
                                 else if (point.grammarStyle === 'daily') examTags.push({ label: '口语', color: 'bg-green-50 text-green-600' })
                               } else if (point.type === 'collocation') {
@@ -2057,6 +2095,41 @@ function StatisticsView({ points }) {
           })}
         </div>
       )}
+
+      {/* Grammar Groups (周业繁框架：按功能分类语法) */}
+      {(() => {
+        const grammarPoints = uniquePoints.filter(p => p.type === 'grammar' && p.grammarGroup)
+        if (grammarPoints.length === 0) return null
+        return (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-1">🧠 语法功能体系</h3>
+            <p className="text-xs text-gray-400 mb-5">按说话人意图分类，理解规律比死记更高效</p>
+            <div className="space-y-4">
+              {GRAMMAR_GROUPS.map(group => {
+                const pts = grammarPoints.filter(p => p.grammarGroup === group.id)
+                if (pts.length === 0) return null
+                return (
+                  <div key={group.id}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${group.color}`}>{group.label}</span>
+                      <span className="text-xs text-gray-400">{group.desc}</span>
+                      <span className="text-xs text-gray-300 ml-auto">{pts.length} 个</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pl-1">
+                      {pts.map(p => (
+                        <div key={p.id} className="text-sm bg-gray-50 rounded-lg px-3 py-1.5">
+                          <span className="font-medium text-gray-800">{p.term}</span>
+                          {p.meaningCN && <span className="text-xs text-gray-400 ml-1.5">{p.meaningCN}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -2247,6 +2320,16 @@ function App() {
   }, [loadFromCloud, showToast])
 
   useEffect(() => { saveData(points) }, [points])
+
+  // Background: classify grammar points that don't have a grammarGroup yet
+  useEffect(() => {
+    const unclassified = points.filter(p => p.type === 'grammar' && !p.grammarGroup)
+    if (unclassified.length === 0) return
+    const timer = setTimeout(() => {
+      classifyGrammarGroups(unclassified, updateGrammarGroup)
+    }, 5000) // delay to not interfere with initial load
+    return () => clearTimeout(timer)
+  }, [points.filter(p => p.type === 'grammar' && !p.grammarGroup).length]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { saveUserTags(userTags) }, [userTags])
   useEffect(() => { saveFavorites(favorites) }, [favorites])
   useEffect(() => { trackEvent(null, 'page_view') }, [])
@@ -2388,6 +2471,10 @@ function App() {
 
   const updateGrammarStyle = (pointId, style) => {
     setPoints(prev => prev.map(p => p.id === pointId ? { ...p, grammarStyle: style } : p))
+  }
+
+  const updateGrammarGroup = (pointId, group) => {
+    setPoints(prev => prev.map(p => p.id === pointId ? { ...p, grammarGroup: group } : p))
   }
 
   const updatePointExample = (pointId, example, exampleCN) => {
