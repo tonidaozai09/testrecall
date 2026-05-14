@@ -2259,7 +2259,7 @@ function App() {
                 onClick={() => { setSettingsGroqKey(localStorage.getItem('user_groq_key') || ''); setSettingsGeminiKey(localStorage.getItem('user_gemini_key') || ''); setShowSettings(true) }}
                 className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-colors"
               >
-                ⚙️ 设置
+                ⚙️ API设置
               </button>
               <button
                 onClick={clearAll}
