@@ -1575,16 +1575,17 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                           <tbody className="divide-y divide-gray-100">
                             {sectionPoints.map((point) => {
                               const colors = TYPE_COLORS[point.type] || TYPE_COLORS.vocabulary
-                              // Related collocations: find entries whose term CONTAINS this word,
-                              // or (for short kanji-only terms ≤2 chars) share all kanji
-                              const termKanji = [...(point.term || '')].filter(c => /[一-鿿]/.test(c))
-                              const relatedCollocations = termKanji.length > 0
+                              // Related collocations: find grammar/collocation entries whose term
+                              // contains this exact word (e.g. 依存する → 〜に依存する, 必ず → 必ずしも〜ない)
+                              // Also try stripping する/な to catch stem matches
+                              const stem = point.term.replace(/する$|な$/, '')
+                              const relatedCollocations = point.term.length >= 2
                                 ? points.filter(p =>
                                     p.id !== point.id &&
                                     (p.type === 'collocation' || p.type === 'grammar') &&
                                     (
                                       (p.term || '').includes(point.term) ||
-                                      (termKanji.length <= 2 && termKanji.every(c => (p.term || '').includes(c)))
+                                      (stem !== point.term && stem.length >= 2 && (p.term || '').includes(stem))
                                     )
                                   ).slice(0, 4)
                                 : []
