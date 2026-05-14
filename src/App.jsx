@@ -1915,7 +1915,13 @@ function App() {
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [loginEmail, setLoginEmail] = useState('')
   const [loginSent, setLoginSent] = useState(false)
+  const [toast, setToast] = useState(null) // { msg, type }
   const syncTimerRef = useRef(null)
+
+  const showToast = useCallback((msg, type = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 4000)
+  }, [])
 
   const loadFromCloud = useCallback(async (userId) => {
     setSyncStatus('syncing')
@@ -1947,10 +1953,17 @@ function App() {
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null)
-      if (event === 'SIGNED_IN' && session?.user) loadFromCloud(session.user.id)
+      if (event === 'SIGNED_IN' && session?.user) {
+        showToast(`✅ 登录成功：${session.user.email}`)
+        setShowLoginModal(false)
+        setLoginSent(false)
+        setLoginEmail('')
+        loadFromCloud(session.user.id)
+      }
+      if (event === 'SIGNED_OUT') showToast('已退出登录', 'info')
     })
     return () => subscription.unsubscribe()
-  }, [loadFromCloud])
+  }, [loadFromCloud, showToast])
 
   useEffect(() => { saveData(points) }, [points])
   useEffect(() => { saveUserTags(userTags) }, [userTags])
@@ -2202,6 +2215,13 @@ function App() {
         TestRecall - JLPT 日语考点记忆助手
       </footer>
 
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-medium text-white transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-gray-700'}`}>
+          {toast.msg}
+        </div>
+      )}
+
       {/* Login Modal */}
       {showLoginModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => { setShowLoginModal(false); setLoginSent(false); setLoginEmail('') }}>
@@ -2234,6 +2254,7 @@ function App() {
                   发送登录链接
                 </button>
                 <p className="text-xs text-gray-400 mt-3 text-center">无需密码，点击邮件链接即可登录</p>
+                <p className="text-xs text-gray-400 mt-1 text-center">⚠️ 每台设备需分别登录，邮件链接请在<b>当前设备</b>上打开</p>
               </>
             )}
           </div>
