@@ -1915,8 +1915,18 @@ function FlashcardView({ points, sourceNames, sourceCategories, onReview }) {
   )
 }
 
+// Exam instruction words that frequently appear in PDF headers/footers but aren't JLPT study points
+const EXAM_META_TERMS = new Set([
+  '問題用紙', '解答用紙', '問い', '問', '番号', '受験番号', '解答', '記入',
+  '鉛筆', '試験', '受験', 'ページ', '点', '点数', 'メモ', '用紙',
+  '注意', '注意事項', '以下', '次', '次の', '各', '各問', '正しい',
+  '適切', '最適', '空欄', '下線', '傍線',
+])
+
 function StatisticsView({ points }) {
-  const uniquePoints = [...points].sort((a, b) => (b.occurrenceCount || 1) - (a.occurrenceCount || 1))
+  const uniquePoints = [...points]
+    .filter(p => !EXAM_META_TERMS.has(p.term))
+    .sort((a, b) => (b.occurrenceCount || 1) - (a.occurrenceCount || 1))
 
   if (points.length === 0) {
     return (
