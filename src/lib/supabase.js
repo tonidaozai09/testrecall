@@ -36,3 +36,26 @@ export async function loadSettingsFromCloud(userId) {
   const { data } = await supabase.from('user_settings').select('*').eq('user_id', userId).maybeSingle()
   return data
 }
+
+export async function trackEvent(userId, eventName, properties = {}) {
+  if (!supabase) return
+  try {
+    let sid = sessionStorage.getItem('tr_sid')
+    if (!sid) { sid = Math.random().toString(36).slice(2); sessionStorage.setItem('tr_sid', sid) }
+    await supabase.from('analytics_events').insert({
+      user_id: userId || null,
+      session_id: sid,
+      event_name: eventName,
+      properties,
+    })
+  } catch (_) {}
+}
+
+export async function loadAnalyticsData() {
+  if (!supabase) return null
+  const [eventsRes, usersRes] = await Promise.all([
+    supabase.from('analytics_events').select('event_name, user_id, created_at').order('created_at', { ascending: false }).limit(2000),
+    supabase.from('user_settings').select('user_id, updated_at'),
+  ])
+  return { events: eventsRes.data || [], users: usersRes.data || [] }
+}

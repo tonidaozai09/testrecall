@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { supabase, syncPointsToCloud, loadPointsFromCloud, syncSettingsToCloud, loadSettingsFromCloud } from './lib/supabase'
+import { supabase, syncPointsToCloud, loadPointsFromCloud, syncSettingsToCloud, loadSettingsFromCloud, trackEvent, loadAnalyticsData } from './lib/supabase'
 import Tesseract from 'tesseract.js'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
@@ -14,6 +14,31 @@ const getGroqKey = () => localStorage.getItem('user_groq_key') || import.meta.en
 const getGeminiKey = () => localStorage.getItem('user_gemini_key') || import.meta.env.VITE_GEMINI_API_KEY || ''
 
 const ADMIN_EMAIL = 'rdjdaozai@gmail.com'
+
+const CHANGELOG = [
+  {
+    version: 'v1.1',
+    date: '2026-05-14',
+    items: [
+      '支持 Google 账号一键登录，数据自动云端同步',
+      '多设备共享学习进度',
+      '新增管理员后台数据看板',
+      '新增公告 & 联系开发者入口',
+    ],
+  },
+  {
+    version: 'v1.0',
+    date: '2026-05-13',
+    items: [
+      '上传 PDF / 图片，AI 自动提取 JLPT N1/N2 考点',
+      '内置 2021.12 N1 真题 1537 个考点',
+      '手动添加词汇 / 语法 / 搭配',
+      '闪卡复习 + 记忆评分系统',
+      '多维度统计图表',
+    ],
+  },
+]
+const LATEST_VERSION = CHANGELOG[0].version
 
 const OCR_LANGS = 'jpn+chi_sim+eng'
 const PDF_OCR_SCALE = 2
@@ -1917,6 +1942,11 @@ function App() {
   const [user, setUser] = useState(null)
   const [syncStatus, setSyncStatus] = useState('idle') // 'idle'|'syncing'|'synced'|'error'
   const [showLoginModal, setShowLoginModal] = useState(false)
+  const [showAnnouncement, setShowAnnouncement] = useState(false)
+  const [showContact, setShowContact] = useState(false)
+  const [showAdminDash, setShowAdminDash] = useState(false)
+  const [adminData, setAdminData] = useState(null)
+  const [hasNewAnnouncement] = useState(() => localStorage.getItem('tr_seen_version') !== LATEST_VERSION)
   const [toast, setToast] = useState(null) // { msg, type }
   const syncTimerRef = useRef(null)
 
@@ -1958,9 +1988,8 @@ function App() {
       if (event === 'SIGNED_IN' && session?.user) {
         showToast(`✅ 登录成功：${session.user.email}`)
         setShowLoginModal(false)
-        setLoginSent(false)
-        setLoginEmail('')
         loadFromCloud(session.user.id)
+        trackEvent(session.user.id, 'login', { email: session.user.email })
       }
       if (event === 'SIGNED_OUT') showToast('已退出登录', 'info')
     })
@@ -1969,6 +1998,7 @@ function App() {
 
   useEffect(() => { saveData(points) }, [points])
   useEffect(() => { saveUserTags(userTags) }, [userTags])
+  useEffect(() => { trackEvent(null, 'page_view') }, [])
   useEffect(() => { saveSourceNames(sourceNames) }, [sourceNames])
   useEffect(() => { saveSourceCategories(sourceCategories) }, [sourceCategories])
 
@@ -2011,6 +2041,19 @@ function App() {
     await supabase.auth.signOut()
     setUser(null)
     setSyncStatus('idle')
+  }
+
+  const openAnnouncement = () => {
+    localStorage.setItem('tr_seen_version', LATEST_VERSION)
+    setShowAnnouncement(true)
+  }
+
+  const openAdminDash = async () => {
+    setShowAdminDash(true)
+    if (!adminData) {
+      const data = await loadAnalyticsData()
+      setAdminData(data)
+    }
   }
 
   // Settings modal
@@ -2165,6 +2208,21 @@ function App() {
               📝 TestRecall
             </h1>
             <div className="flex items-center gap-3">
+              {/* Announcement */}
+              <button onClick={openAnnouncement} className="relative text-xl text-gray-400 hover:text-gray-700 transition-colors" title="公告">
+                📢
+                {hasNewAnnouncement && <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />}
+              </button>
+              {/* Contact */}
+              <button onClick={() => setShowContact(true)} className="text-xl text-gray-400 hover:text-gray-700 transition-colors" title="联系开发者">
+                💬
+              </button>
+              {/* Admin dashboard */}
+              {user?.email === ADMIN_EMAIL && (
+                <button onClick={openAdminDash} className="text-xl text-gray-400 hover:text-gray-700 transition-colors" title="管理员后台">
+                  📊
+                </button>
+              )}
               {supabase && (
                 user ? (
                   <div className="flex items-center gap-2">
@@ -2294,6 +2352,112 @@ function App() {
               <button onClick={() => setShowSettings(false)} className="flex-1 border border-gray-300 text-gray-600 rounded-lg py-2.5 text-sm hover:bg-gray-50">取消</button>
               <button onClick={saveSettings} className="flex-1 bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-blue-700">保存</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Announcement Modal */}
+      {showAnnouncement && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowAnnouncement(false)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-900 mb-4">📢 更新公告</h2>
+            {CHANGELOG.map(log => (
+              <div key={log.version} className="mb-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg">{log.version}</span>
+                  <span className="text-xs text-gray-400">{log.date}</span>
+                </div>
+                <ul className="space-y-1">
+                  {log.items.map((item, i) => (
+                    <li key={i} className="text-sm text-gray-700 flex gap-2"><span className="text-green-500 flex-shrink-0">✓</span>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            <button onClick={() => setShowAnnouncement(false)} className="w-full mt-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl py-2.5 text-sm font-medium">关闭</button>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Modal */}
+      {showContact && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowContact(false)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
+            <div className="text-4xl mb-3">👨‍💻</div>
+            <h2 className="text-lg font-bold text-gray-900 mb-1">联系开发者</h2>
+            <p className="text-sm text-gray-500 mb-4">有问题、建议或合作，欢迎联系</p>
+            <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-4">
+              <p className="text-xs text-gray-500 mb-1">小红书 ID</p>
+              <p className="text-lg font-bold text-red-500 tracking-widest">5021354276</p>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">在小红书搜索此 ID 即可找到我</p>
+            <button onClick={() => setShowContact(false)} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl py-2.5 text-sm font-medium">关闭</button>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Dashboard Modal */}
+      {showAdminDash && user?.email === ADMIN_EMAIL && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowAdminDash(false)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-900 mb-4">📊 管理员后台</h2>
+            {!adminData ? (
+              <p className="text-sm text-gray-400 text-center py-8">加载中…</p>
+            ) : (() => {
+              const events = adminData.events || []
+              const users = adminData.users || []
+              const now = Date.now()
+              const day = 86400000
+              const uniqueUsers = new Set(events.filter(e => e.user_id).map(e => e.user_id))
+              const activeToday = new Set(events.filter(e => e.user_id && now - new Date(e.created_at).getTime() < day).map(e => e.user_id))
+              const activeWeek = new Set(events.filter(e => e.user_id && now - new Date(e.created_at).getTime() < 7 * day).map(e => e.user_id))
+              const eventCounts = events.reduce((acc, e) => { acc[e.event_name] = (acc[e.event_name] || 0) + 1; return acc }, {})
+              const topEvents = Object.entries(eventCounts).sort((a, b) => b[1] - a[1]).slice(0, 10)
+              return (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: '注册用户', value: users.length || uniqueUsers.size },
+                      { label: '今日活跃', value: activeToday.size },
+                      { label: '本周活跃', value: activeWeek.size },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="bg-blue-50 rounded-xl p-3 text-center">
+                        <p className="text-2xl font-bold text-blue-700">{value}</p>
+                        <p className="text-xs text-blue-500 mt-1">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">操作统计（总计 {events.length} 次）</p>
+                    <div className="space-y-1.5">
+                      {topEvents.map(([name, count]) => (
+                        <div key={name} className="flex items-center gap-2">
+                          <span className="text-xs text-gray-600 w-32 truncate">{name}</span>
+                          <div className="flex-1 bg-gray-100 rounded-full h-2">
+                            <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${Math.round(count / events.length * 100)}%` }} />
+                          </div>
+                          <span className="text-xs text-gray-500 w-8 text-right">{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">最近动态</p>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {events.slice(0, 20).map((e, i) => (
+                        <div key={i} className="text-xs text-gray-500 flex gap-2">
+                          <span className="text-gray-300">{new Date(e.created_at).toLocaleString('zh')}</span>
+                          <span className="font-medium text-gray-700">{e.event_name}</span>
+                          <span className="text-gray-400 truncate">{e.user_id?.slice(0, 8) || '匿名'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={async () => { setAdminData(null); const d = await loadAnalyticsData(); setAdminData(d) }} className="w-full text-xs text-blue-500 hover:text-blue-700 py-1">刷新数据</button>
+                </div>
+              )
+            })()}
+            <button onClick={() => setShowAdminDash(false)} className="w-full mt-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl py-2.5 text-sm font-medium">关闭</button>
           </div>
         </div>
       )}
