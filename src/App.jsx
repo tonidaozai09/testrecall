@@ -1930,11 +1930,22 @@ function StatisticsView({ points }) {
           <div className="space-y-2">
             {uniquePoints.filter(p => (p.occurrenceCount || 1) >= 2).slice(0, 10).map((p, idx) => {
               const colors = TYPE_COLORS[p.type] || TYPE_COLORS.vocabulary
-              const examHint = p.type === 'grammar'
-                ? '常见考法：选填句中空格、判断语法形式是否正确'
-                : p.type === 'collocation'
-                ? '常见考法：选出与句意搭配最合适的固定表达'
-                : '常见考法：选出划线词的最近义词或在句中填入合适词汇'
+              const examHint = (() => {
+                if (p.type === 'grammar') {
+                  const parts = []
+                  if (p.connection) parts.push(`接続：${p.connection}`)
+                  parts.push('文の文法1（选填接续形式）')
+                  parts.push('文の文法2（4词排序成句）')
+                  if (p.grammarStyle === 'formal') parts.push('多见于书面语・正式文体')
+                  else if (p.grammarStyle === 'daily') parts.push('多见于口语・日常会话')
+                  return parts.join(' ／ ')
+                }
+                if (p.type === 'collocation') {
+                  return '固定表达，考察整体语义（非字面意思）；题型：言い換え类义辨析 ／ 用法选句'
+                }
+                // vocabulary
+                return '語彙題型：①言い換え — 选出意思最接近的词 ②文脈規定 — 选填句中空白 ③用法 — 判断哪句用法正确'
+              })()
               return (
                 <div key={idx} className="p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-4">
