@@ -1575,14 +1575,18 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
                           <tbody className="divide-y divide-gray-100">
                             {sectionPoints.map((point) => {
                               const colors = TYPE_COLORS[point.type] || TYPE_COLORS.vocabulary
-                              // Related collocations: other collocation/grammar points sharing a CJK character
-                              const termChars = [...(point.term || '')].filter(c => /[一-鿿぀-ヿ]/.test(c))
-                              const relatedCollocations = termChars.length > 0
+                              // Related collocations: find entries whose term CONTAINS this word,
+                              // or (for short kanji-only terms ≤2 chars) share all kanji
+                              const termKanji = [...(point.term || '')].filter(c => /[一-鿿]/.test(c))
+                              const relatedCollocations = termKanji.length > 0
                                 ? points.filter(p =>
                                     p.id !== point.id &&
                                     (p.type === 'collocation' || p.type === 'grammar') &&
-                                    termChars.some(c => (p.term || '').includes(c))
-                                  ).slice(0, 3)
+                                    (
+                                      (p.term || '').includes(point.term) ||
+                                      (termKanji.length <= 2 && termKanji.every(c => (p.term || '').includes(c)))
+                                    )
+                                  ).slice(0, 4)
                                 : []
                               // Dynamic exam hint
                               const examLines = []
