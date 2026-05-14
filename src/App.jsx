@@ -1958,22 +1958,12 @@ function StatisticsView({ points }) {
           <div className="space-y-2">
             {uniquePoints.filter(p => (p.occurrenceCount || 1) >= 2).slice(0, 10).map((p, idx) => {
               const colors = TYPE_COLORS[p.type] || TYPE_COLORS.vocabulary
-              const examHint = (() => {
-                if (p.type === 'grammar') {
-                  const parts = []
-                  if (p.connection) parts.push(`接続：${p.connection}`)
-                  parts.push('文の文法1（选填接续形式）')
-                  parts.push('文の文法2（4词排序成句）')
-                  if (p.grammarStyle === 'formal') parts.push('多见于书面语・正式文体')
-                  else if (p.grammarStyle === 'daily') parts.push('多见于口语・日常会话')
-                  return parts.join(' ／ ')
-                }
-                if (p.type === 'collocation') {
-                  return '固定表达，考察整体语义（非字面意思）；题型：言い換え类义辨析 ／ 用法选句'
-                }
-                // vocabulary
-                return '語彙題型：①言い換え — 选出意思最接近的词 ②文脈規定 — 选填句中空白 ③用法 — 判断哪句用法正确'
-              })()
+              const sourceTitle = p.source?.title || p.source?.id || null
+              const sectionLabel = p.type === 'grammar' ? '文法' : '語彙'
+              const examRef = sourceTitle
+                ? `在 ${sourceTitle} N1 真题${sectionLabel}部分出现 ${p.occurrenceCount || 1} 次`
+                : `在历年 N1 真题中出现 ${p.occurrenceCount || 1} 次`
+              const extra = p.type === 'grammar' && p.connection ? `接続：${p.connection}` : null
               return (
                 <div key={idx} className="p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-4">
@@ -1985,7 +1975,8 @@ function StatisticsView({ points }) {
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors.bg} ${colors.text}`}>{TYPE_LABELS[p.type] || p.type}</span>
                       </div>
                       {p.meaningCN && <div className="text-sm text-gray-600 mt-0.5">{p.meaningCN}</div>}
-                      <div className="text-xs text-blue-500 mt-1">📝 {examHint}</div>
+                      <div className="text-xs text-orange-500 mt-1">📚 {examRef}</div>
+                      {extra && <div className="text-xs text-gray-400 mt-0.5">📎 {extra}</div>}
                     </div>
                     <span className={`px-2 py-1 rounded text-sm font-bold flex-shrink-0 ${colors.bg} ${colors.text}`}>
                       ×{p.occurrenceCount || 1}
