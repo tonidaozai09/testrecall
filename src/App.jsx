@@ -1954,9 +1954,12 @@ function StatisticsView({ points }) {
                   {group.map((p, idx) => {
                     const sourceTitle = p.source?.title || p.source?.id || null
                     const sectionLabel = p.type === 'grammar' ? '文法' : '語彙'
-                    const examRef = sourceTitle
-                      ? `${sourceTitle} N1 真题${sectionLabel}部分 ×${p.occurrenceCount || 1}`
-                      : `历年 N1 真题 ×${p.occurrenceCount || 1}`
+                    const cnt = p.occurrenceCount || 1
+                    const examRef = cnt > 3
+                      ? `JLPT 考试中出现 ${cnt} 次以上`
+                      : sourceTitle
+                        ? `${sourceTitle} N1 真题${sectionLabel}部分 ×${cnt}`
+                        : `历年 N1 真题 ×${cnt}`
                     return (
                       <div key={idx} className="p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-start gap-3">
