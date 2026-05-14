@@ -1915,6 +1915,9 @@ function App() {
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [loginEmail, setLoginEmail] = useState('')
   const [loginSent, setLoginSent] = useState(false)
+  const [loginCode, setLoginCode] = useState('')
+  const [loginVerifying, setLoginVerifying] = useState(false)
+  const [loginError, setLoginError] = useState('')
   const [toast, setToast] = useState(null) // { msg, type }
   const syncTimerRef = useRef(null)
   const loginPollRef = useRef(null)
@@ -1995,22 +1998,28 @@ function App() {
 
   const handleLogin = async () => {
     if (!loginEmail.trim() || !supabase) return
+    setLoginError('')
     await supabase.auth.signInWithOtp({
       email: loginEmail.trim(),
-      options: { emailRedirectTo: window.location.href },
+      options: { shouldCreateUser: true },
     })
     setLoginSent(true)
-    // Poll for session every 2s (works when link is opened in this browser)
-    clearInterval(loginPollRef.current)
-    loginPollRef.current = setInterval(async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        clearInterval(loginPollRef.current)
-        // onAuthStateChange will handle the rest
-      }
-    }, 2000)
-    // Stop polling after 10 minutes
-    setTimeout(() => clearInterval(loginPollRef.current), 10 * 60 * 1000)
+  }
+
+  const handleVerifyCode = async () => {
+    if (!loginCode.trim() || !supabase) return
+    setLoginVerifying(true)
+    setLoginError('')
+    const { error } = await supabase.auth.verifyOtp({
+      email: loginEmail.trim(),
+      token: loginCode.trim(),
+      type: 'email',
+    })
+    setLoginVerifying(false)
+    if (error) {
+      setLoginError('验证码错误或已过期，请重试')
+    }
+    // success is handled by onAuthStateChange
   }
 
   const handleLogout = async () => {
@@ -2236,27 +2245,38 @@ function App() {
 
       {/* Login Modal */}
       {showLoginModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => { setShowLoginModal(false); setLoginSent(false); setLoginEmail('') }}>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => { setShowLoginModal(false); setLoginSent(false); setLoginEmail(''); setLoginCode(''); setLoginError('') }}>
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <h2 className="text-lg font-bold text-gray-900 mb-1">登录账号</h2>
             <p className="text-sm text-gray-500 mb-4">登录后数据自动云端同步，多设备共享</p>
             {loginSent ? (
-              <div className="text-center py-4">
-                <div className="text-4xl mb-3">📧</div>
-                <p className="text-sm font-medium text-gray-800">验证邮件已发送至</p>
-                <p className="text-sm font-bold text-blue-600 mt-0.5">{loginEmail}</p>
-                <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3 text-left">
-                  <p className="text-xs font-semibold text-amber-800 mb-1">⚠️ 重要：</p>
-                  <p className="text-xs text-amber-700">请在<b>当前这台电脑的浏览器</b>中打开邮件，点击登录链接。</p>
-                  <p className="text-xs text-amber-700 mt-1">若在手机上点击，只有手机会登录，本页面不会更新。</p>
+              <div>
+                <div className="text-center mb-4">
+                  <div className="text-4xl mb-2">📧</div>
+                  <p className="text-sm font-medium text-gray-800">验证码已发送至</p>
+                  <p className="text-sm font-bold text-blue-600 mt-0.5">{loginEmail}</p>
+                  <p className="text-xs text-gray-500 mt-2">用任何设备打开邮件，把 6 位数字验证码输入下方</p>
                 </div>
-                <div className="mt-3 flex items-center gap-1.5 justify-center">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay:'0ms'}}/>
-                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay:'150ms'}}/>
-                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay:'300ms'}}/>
-                  <span className="text-xs text-gray-400 ml-1">等待登录中…</span>
-                </div>
-                <button onClick={() => { clearInterval(loginPollRef.current); setShowLoginModal(false); setLoginSent(false); setLoginEmail('') }} className="mt-4 text-xs text-gray-400 hover:text-gray-600">取消</button>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="输入 6 位验证码"
+                  value={loginCode}
+                  onChange={e => { setLoginCode(e.target.value.replace(/\D/g, '')); setLoginError('') }}
+                  onKeyDown={e => e.key === 'Enter' && handleVerifyCode()}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-3 text-center text-2xl tracking-widest font-mono mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                />
+                {loginError && <p className="text-xs text-red-500 text-center mb-2">{loginError}</p>}
+                <button
+                  onClick={handleVerifyCode}
+                  disabled={loginCode.length < 6 || loginVerifying}
+                  className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loginVerifying ? '验证中…' : '确认登录'}
+                </button>
+                <button onClick={() => { setLoginSent(false); setLoginCode(''); setLoginError('') }} className="w-full mt-2 text-xs text-gray-400 hover:text-gray-600 py-1">← 重新输入邮箱</button>
               </div>
             ) : (
               <>
@@ -2274,10 +2294,9 @@ function App() {
                   disabled={!loginEmail.trim()}
                   className="w-full bg-blue-600 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  发送登录链接
+                  发送验证码
                 </button>
-                <p className="text-xs text-gray-400 mt-3 text-center">无需密码，点击邮件链接即可登录</p>
-                <p className="text-xs text-gray-400 mt-1 text-center">⚠️ 每台设备需分别登录，邮件链接请在<b>当前设备</b>上打开</p>
+                <p className="text-xs text-gray-400 mt-3 text-center">无需密码，邮件里的 6 位验证码在 PC 输入即可登录</p>
               </>
             )}
           </div>
