@@ -1724,12 +1724,7 @@ function PointsListView({ points, userTags, onUpdatePointTags, onCreateTag, onAd
 }
 
 // Statistics View Component
-function FlashcardView({ points, sourceNames, sourceCategories, onReview }) {
-  const [deckSource, setDeckSource] = useState('__all__')
-  const [queue, setQueue] = useState(null)   // null = not started
-  const [idx, setIdx] = useState(0)
-  const [flipped, setFlipped] = useState(false)
-  const [sessionStats, setSessionStats] = useState({ known: 0, again: 0 })
+function FlashcardView({ points, sourceNames, sourceCategories, onReview, deckSource, setDeckSource, queue, setQueue, idx, setIdx, flipped, setFlipped, sessionStats, setSessionStats }) {
 
   // build source options
   const allSources = [...new Map(points.map(p => [(p.source || {}).id, p.source])).values()].filter(Boolean)
@@ -2099,6 +2094,11 @@ function App() {
   const [userTags, setUserTags] = useState(loadUserTags)
   const [favorites, setFavorites] = useState(loadFavorites)
   const [pointsFolder, setPointsFolder] = useState(null)
+  const [cardDeckSource, setCardDeckSource] = useState('__all__')
+  const [cardQueue, setCardQueue] = useState(null)
+  const [cardIdx, setCardIdx] = useState(0)
+  const [cardFlipped, setCardFlipped] = useState(false)
+  const [cardSessionStats, setCardSessionStats] = useState({ known: 0, again: 0 })
   const [sourceNames, setSourceNames] = useState(loadSourceNames)
   const [sourceCategories, setSourceCategories] = useState(loadSourceCategories)
   const [user, setUser] = useState(null)
@@ -2531,7 +2531,7 @@ function App() {
         {view === 'scan' && <ScanView onAddPoints={addPoints} isAdmin={user?.email === ADMIN_EMAIL} onOpenSettings={() => { setSettingsGroqKey(localStorage.getItem('user_groq_key') || ''); setSettingsGeminiKey(localStorage.getItem('user_gemini_key') || ''); setShowSettings(true) }} />}
         {view === 'points' && <PointsListView points={points} userTags={userTags} onUpdatePointTags={updatePointCustomTags} onCreateTag={createTag} onAddPoint={p => addPoints([p])} sourceNames={sourceNames} onRenameSource={renameSource} sourceCategories={sourceCategories} onAssignSourceCategory={assignSourceCategory} onDeletePoint={deletePoint} onUpdatePointExample={updatePointExample} onUpdateGrammarStyle={updateGrammarStyle} onMergeSources={mergeSources} onDeleteCategory={deleteCategory} favorites={favorites} onToggleFavorite={toggleFavorite} selectedFolder={pointsFolder} setSelectedFolder={setPointsFolder} />}
         {view === 'favorites' && <FavoritesView points={points} favorites={favorites} onToggleFavorite={toggleFavorite} onDeletePoint={deletePoint} />}
-        {view === 'cards' && <FlashcardView points={points} sourceNames={sourceNames} sourceCategories={sourceCategories} onReview={reviewPoint} />}
+        {view === 'cards' && <FlashcardView points={points} sourceNames={sourceNames} sourceCategories={sourceCategories} onReview={reviewPoint} deckSource={cardDeckSource} setDeckSource={setCardDeckSource} queue={cardQueue} setQueue={setCardQueue} idx={cardIdx} setIdx={setCardIdx} flipped={cardFlipped} setFlipped={setCardFlipped} sessionStats={cardSessionStats} setSessionStats={setCardSessionStats} />}
         {view === 'stats' && <StatisticsView points={points} />}
       </main>
 
