@@ -2150,6 +2150,22 @@ function App() {
   useEffect(() => { saveUserTags(userTags) }, [userTags])
   useEffect(() => { saveFavorites(favorites) }, [favorites])
   useEffect(() => { trackEvent(null, 'page_view') }, [])
+
+  // Auto-load built-in data for new users
+  useEffect(() => {
+    if (localStorage.getItem('tr_builtin_loaded')) return
+    if (points.length > 0) { localStorage.setItem('tr_builtin_loaded', '1'); return }
+    fetch('./import_2021_12.json')
+      .then(r => r.json())
+      .then(pts => {
+        setPoints(pts)
+        const names = { 'tr_builtin_loaded': '1' }
+        localStorage.setItem('tr_builtin_loaded', '1')
+        setSourceNames(prev => ({ ...prev, '2021.12-n1-pdf': '2021.12 N1 真题' }))
+        showToast(`已加载内置 2021.12 N1 真题考点（${pts.length} 个）`, 'success')
+      })
+      .catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { saveSourceNames(sourceNames) }, [sourceNames])
   useEffect(() => { saveSourceCategories(sourceCategories) }, [sourceCategories])
 
