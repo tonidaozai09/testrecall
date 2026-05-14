@@ -2350,6 +2350,23 @@ function App() {
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // One-time pass: null out any stored readings that contain kanji (AI extraction errors)
+  useEffect(() => {
+    if (localStorage.getItem('tr_reading_cleaned')) return
+    setPoints(prev => {
+      let fixed = 0
+      const next = prev.map(p => {
+        if (p.reading && !isValidReading(p.reading)) {
+          fixed++
+          return { ...p, reading: null }
+        }
+        return p
+      })
+      localStorage.setItem('tr_reading_cleaned', '1')
+      return fixed > 0 ? next : prev
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-load built-in data for new users (merge, never overwrite)
   useEffect(() => {
     if (localStorage.getItem('tr_builtin_loaded')) return
