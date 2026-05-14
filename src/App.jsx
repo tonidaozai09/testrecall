@@ -66,7 +66,7 @@ const STUDY_SECTIONS = [
   {
     id: 'grammar',
     title: '语法',
-    description: '句型、接续、语气和易混语法',
+    description: '句型、接续、语气',
     types: ['grammar'],
   },
 ]
